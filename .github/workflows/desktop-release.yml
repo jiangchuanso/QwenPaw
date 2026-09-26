@@ -32,8 +32,9 @@ concurrency:
 jobs:
   # On release events, fail fast if the DashScope secret is missing.
   # Without it, the verifier would silently skip the LLM chat round
-  # and emit a misleading "PASS". Forks / manual dispatch are allowed
-  # to run without the secret (UI-load checks still execute).
+  # and emit a misleading "PASS" — so upstream (agentscope-ai/QwenPaw) still
+  # fails closed. Forks keep building the installers instead: the verify
+  # actions skip the LLM round when the key is empty, so we only warn.
   check-release-secrets:
     name: Check release secrets (release only)
     if: github.event_name == 'release'
@@ -44,10 +45,36 @@ jobs:
           QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
         run: |
           if [ -z "$QWENPAW_DASHSCOPE_API_KEY" ]; then
-            echo "::error::QWENPAW_DASHSCOPE_API_KEY is not set; release verification cannot validate the LLM chat round. Configure the repo secret before publishing."
-            exit 1
+            if [ "${{ github.repository }}" = "agentscope-ai/QwenPaw" ]; then
+              echo "::error::QWENPAW_DASHSCOPE_API_KEY is not set; release verification cannot validate the LLM chat round. Configure the repo secret before publishing."
+              exit 1
+            fi
+            echo "::warning::QWENPAW_DASHSCOPE_API_KEY is not set; continuing without the LLM chat round verification (fork build)."
+            exit 0
           fi
           echo "DashScope secret present"
+
+  # ── Preflight: skip the OSS upload job when OSS credentials are absent ─────
+  # A job-level `if` cannot read the secrets context, so the presence check runs
+  # as a step whose output gates the upload job: on a fork the job shows as
+  # skipped instead of failing at `ossutil config -e` with an empty endpoint.
+  oss-secrets:
+    name: Check OSS secrets
+    runs-on: ubuntu-latest
+    outputs:
+      has-secrets: ${{ steps.check.outputs.has-secrets }}
+    steps:
+      - name: Check OSS secrets
+        id: check
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+        run: |
+          if [ -n "$OSS_ENDPOINT" ]; then
+            echo "has-secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::OSS secrets are not configured; skipping the desktop OSS upload job."
+          fi
 
   build-windows:
     needs: [check-release-secrets]
@@ -590,10 +617,12 @@ jobs:
             "${files[@]}"
 
   upload-oss:
-    needs: [build-tauri-windows, build-tauri-macos]
-    # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
+    needs: [build-tauri-windows, build-tauri-macos, oss-secrets]
+    # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked.
+    # Also requires OSS secrets — otherwise the job is skipped, not failed.
     if: |
       always() &&
+      needs.oss-secrets.outputs.has-secrets == 'true' &&
       (github.event_name == 'release' ||
        (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')) &&
       needs.build-tauri-windows.result == 'success' &&
