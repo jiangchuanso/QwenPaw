@@ -69,6 +69,13 @@ def _create_valid_artifacts(root: Path) -> dict[str, Path]:
         archive.writestr("QwenPaw.app/Contents/MacOS/QwenPaw", b"app")
     _write_checksum(macos)
 
+    _write_file(
+        root
+        / "QwenPaw-Desktop-Tauri-Linux-arm64-1.0.0"
+        / "QwenPaw-Tauri-1.0.0-Linux-arm64.deb",
+        b"linux deb",
+    )
+
     windows_updater = root / "tauri-updater-meta-windows"
     windows_signature = _write_file(
         windows_updater / f"{windows_name}.sig",
@@ -129,6 +136,7 @@ def test_valid_installers_and_updater_metadata_pass(tmp_path: Path) -> None:
     result = _run_verifier(tmp_path)
 
     assert result.returncode == 0, result.stderr
+    assert "verified linux-arm64 artifact" in result.stdout
     assert "verified windows-updater metadata" in result.stdout
     assert "verified macos-updater metadata" in result.stdout
 

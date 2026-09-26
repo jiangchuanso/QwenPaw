@@ -14,6 +14,7 @@ import zipfile
 ARTIFACT_PATTERNS = {
     "windows": "QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe",
     "macos": "QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip",
+    "linux-arm64": "QwenPaw-Desktop-Tauri-Linux-arm64-*/QwenPaw-Tauri-*-Linux-*.deb",
 }
 
 UPDATER_SPECS = {

@@ -134,6 +134,13 @@ jobs:
             "QwenPaw-Tauri-${VERSION}-macOS.zip" \
             "QwenPaw-Tauri-latest-macOS.zip"
 
+          promote_latest \
+            "QwenPaw-Desktop-Tauri-Linux-*" \
+            "QwenPaw-Tauri-*-Linux-*.deb" \
+            "linux-arm64-tauri" \
+            "QwenPaw-Tauri-${VERSION}-Linux-arm64.deb" \
+            "QwenPaw-Tauri-latest-Linux-arm64.deb"
+
       - name: Link artifacts into updater-meta dirs for manifest generation
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
         run: |
@@ -221,6 +228,11 @@ jobs:
             "QwenPaw-Desktop-Tauri-macOS-*" \
             "QwenPaw-Tauri-*-macOS.zip" \
             "mac-tauri"
+          merge_tauri_metadata \
+            "linux-arm64-tauri-metadata.json" \
+            "QwenPaw-Desktop-Tauri-Linux-*" \
+            "QwenPaw-Tauri-*-Linux-*.deb" \
+            "linux-arm64-tauri"
 
           # Upload updated desktop/index.json
           bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \

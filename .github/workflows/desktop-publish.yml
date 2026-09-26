@@ -71,7 +71,8 @@ jobs:
           shopt -s nullglob
           mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
-          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip)
+          mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.deb . 2>/dev/null || true
+          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip QwenPaw-Tauri-*-Linux-*.deb)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::No desktop installers found to attach to the release"
             exit 1
@@ -191,6 +192,13 @@ jobs:
             "mac-tauri" \
             "QwenPaw-Tauri-${VERSION}-macOS.zip" \
             "mac-tauri-metadata.json"
+
+          upload_versioned \
+            "QwenPaw-Desktop-Tauri-Linux-*" \
+            "QwenPaw-Tauri-*-Linux-*.deb" \
+            "linux-arm64-tauri" \
+            "QwenPaw-Tauri-${VERSION}-Linux-arm64.deb" \
+            "linux-arm64-tauri-metadata.json"
 
       - name: Upload Tauri macOS updater archive to OSS
         # The .zip is for first-install; the auto-updater pulls .app.tar.gz.

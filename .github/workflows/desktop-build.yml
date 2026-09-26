@@ -370,3 +370,114 @@ jobs:
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig.sha256
             dist/tauri-darwin-*-updater.json
             dist/tauri-darwin-*-updater.json.sha256
+
+  build-tauri-linux-arm64:
+    # Produces a Linux aarch64 .deb (self-contained, with the full offline data
+    # package) that also runs on Kylin V10 SP1. Kylin V10 SP1 is Ubuntu 20.04
+    # based (glibc 2.31), so the build runs inside an ubuntu:20.04 arm64
+    # container: linking against a newer glibc (22.04/24.04) would produce a
+    # package the target OS cannot load. Tauri 2 links against webkit2gtk-4.1,
+    # which focal does not ship by default, so it is pulled from the savoury1
+    # webkit backports PPA. No updater signing is configured for Linux, so no
+    # updater sidecar is produced.
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ubuntu:20.04
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install git (the ubuntu:20.04 image does not ship it)
+        # actions/checkout requires git inside the container, so it has to be
+        # installed before the checkout step can run.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Install system build dependencies
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl wget file git \
+            build-essential pkg-config \
+            python3 python3-venv python3-dev \
+            software-properties-common gnupg
+          # Tauri 2 requires webkit2gtk-4.1; focal only has 4.0, so add the
+          # backports PPA that provides 4.1 for focal.
+          add-apt-repository -y ppa:savoury1/webkit
+          apt-get update
+          if ! apt-cache show libwebkit2gtk-4.1-dev >/dev/null 2>&1; then
+            echo "::error::libwebkit2gtk-4.1-dev is unavailable; the savoury1/webkit PPA no longer provides it for focal."
+            exit 1
+          fi
+          apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev libxdo-dev \
+            libssl-dev patchelf fakeroot
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Rust
+        run: |
+          set -eux
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Tauri Linux package (.deb)
+        env:
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x scripts/pack-tauri/build_linux_pyinstaller.sh
+          bash scripts/pack-tauri/build_linux_pyinstaller.sh
+
+      - name: Generate Linux artifact checksum
+        run: |
+          shopt -s nullglob
+          artifacts=(dist/QwenPaw-Tauri-*-Linux-*.deb)
+          if [ ${#artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one Linux .deb, found ${#artifacts[@]}"
+            exit 1
+          fi
+          artifact="${artifacts[0]}"
+          (
+            cd "$(dirname "$artifact")"
+            sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+          )
+
+      - name: Upload Tauri Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-Linux-arm64-${{ steps.version.outputs.version }}
+          path: |
+            dist/QwenPaw-Tauri-*-Linux-*.deb
+            dist/QwenPaw-Tauri-*-Linux-*.deb.sha256

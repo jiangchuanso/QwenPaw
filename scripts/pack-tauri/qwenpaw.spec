@@ -157,7 +157,6 @@ _metadata_pkgs = [
     "reme-auto-fin",
     "reme-daily-paper",
     "huggingface_hub",
-    "modelscope",
     "openai-whisper",
     "openai-codex",
     "openai-codex-cli-bin",
@@ -230,9 +229,6 @@ a = Analysis(
         "psutil",
         "multipart",
         "websockets",
-        "modelscope",
-        "modelscope.hub.api",
-        "modelscope.hub.snapshot_download",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("whisper"),
@@ -241,7 +237,18 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # QwenPaw talks to a remote llama-server, so the embedded llama.cpp
+    # local-inference stack is intentionally NOT shipped in the desktop bundle
+    # (this keeps the installer small). The ModelScope SDK and any llama-cpp
+    # Python bindings are only used by qwenpaw.local_models to download GGUF
+    # weights for local inference, and both are imported lazily inside that
+    # package, so excluding them leaves startup and every remote-model path
+    # unaffected. Drop an entry here to restore local inference.
+    excludes=[
+        "modelscope",
+        "llama_cpp",
+        "llama_cpp_python",
+    ],
     noarchive=False,
 )
 

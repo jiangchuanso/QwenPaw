@@ -550,6 +550,7 @@ jobs:
           mv QwenPaw-Desktop-macOS-*/QwenPaw-*.zip . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
+          mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.deb . 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -559,6 +560,7 @@ jobs:
             QwenPaw-[0-9]*-macOS.zip
             QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
+            QwenPaw-Tauri-*-Linux-*.deb
             qwenpaw-tauri-latest.json
           fail_on_unmatched_files: false
         env:
@@ -574,6 +576,7 @@ jobs:
             QwenPaw-[0-9]*-macOS.zip
             QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
+            QwenPaw-Tauri-*-Linux-*.deb
           )
           if [ -f qwenpaw-tauri-latest.json ]; then
             files+=(qwenpaw-tauri-latest.json)
@@ -793,6 +796,14 @@ jobs:
             "QwenPaw-Tauri-latest-macOS.zip" \
             "mac-tauri-metadata.json"
 
+          upload_tauri_artifact \
+            "QwenPaw-Desktop-Tauri-Linux-*" \
+            "QwenPaw-Tauri-*-Linux-*.deb" \
+            "linux-arm64-tauri" \
+            "QwenPaw-Tauri-${VERSION}-Linux-arm64.deb" \
+            "QwenPaw-Tauri-latest-Linux-arm64.deb" \
+            "linux-arm64-tauri-metadata.json"
+
       - name: Upload Tauri macOS updater archive to OSS
         # The .zip is for first-install; the auto-updater pulls .app.tar.gz.
         if: hashFiles('tauri-updater-meta-macos/*.app.tar.gz') != ''
@@ -916,6 +927,11 @@ jobs:
             "QwenPaw-Desktop-Tauri-macOS-*" \
             "QwenPaw-Tauri-*-macOS.zip" \
             "mac-tauri"
+          merge_tauri_metadata \
+            "linux-arm64-tauri-metadata.json" \
+            "QwenPaw-Desktop-Tauri-Linux-*" \
+            "QwenPaw-Tauri-*-Linux-*.deb" \
+            "linux-arm64-tauri"
 
           # Upload updated desktop/index.json
           bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \

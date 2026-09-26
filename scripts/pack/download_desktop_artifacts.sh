@@ -63,7 +63,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     -f per_page=100 \
     --jq '.artifacts[] | select(.expired == false) | .name'); then
     while IFS= read -r name; do
-      if [[ "$name" =~ ^QwenPaw-Desktop-Tauri-(Windows|macOS)- ]]; then
+      if [[ "$name" =~ ^QwenPaw-Desktop-Tauri-(Windows|macOS|Linux-arm64)- ]]; then
         selected+=("$name")
       elif $include_updater_metadata && \
         [[ "$name" =~ ^tauri-updater-meta-(windows|macos)$ ]]; then

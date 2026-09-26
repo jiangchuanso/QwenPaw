@@ -70,6 +70,10 @@ def generate_metadata(
             "zh-CN": "macOS Tauri",
             "en-US": "for macOS (Tauri)",
         },
+        "linux-arm64-tauri": {
+            "zh-CN": "Linux ARM64 Tauri（麒麟/飞腾）",
+            "en-US": "for Linux ARM64 (Tauri)",
+        },
         "win": {"zh-CN": "Windows 版", "en-US": "for Windows"},
         "mac": {"zh-CN": "macOS 版", "en-US": "for macOS"},
         "linux": {"zh-CN": "Linux 版", "en-US": "for Linux"},
