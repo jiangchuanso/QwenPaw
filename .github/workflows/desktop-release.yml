@@ -543,21 +543,21 @@ jobs:
             dist/tauri-darwin-*-updater.json
             dist/tauri-darwin-*-updater.json.sha256
 
-  # ── Linux ARM64 (Kylin V10 SP1) .deb ───────────────────────────────────────
+  # ── Linux ARM64 (Kylin V10 SP1) backend .deb ───────────────────────────────
   # Mirrors build-tauri-linux-arm64 in desktop-build.yml so that publishing a
-  # Release directly (this legacy path) also produces the Linux .deb.
+  # Release directly (this legacy path) also produces the Linux package.
   build-tauri-linux-arm64:
     needs: [check-release-secrets]
     if: |
       always() &&
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
-    # Kylin V10 SP1 is Ubuntu 20.04 based (glibc 2.31), so the build runs inside
-    # an ubuntu:20.04 arm64 container: linking against a newer glibc (22.04/24.04)
-    # would produce a package the target OS cannot load. Tauri 2 links against
-    # webkit2gtk-4.1, which focal does not ship by default, so it is pulled from
-    # the savoury1/webkit backports PPA. No updater signing is configured for
-    # Linux, so no updater sidecar is produced.
+    # Backend-only package (FastAPI + prebuilt console, UI in the browser): there
+    # is no Tauri shell on Linux because Tauri 2 needs WebKitGTK 4.1 + libsoup3,
+    # which focal / Kylin V10 SP1 do not ship (and the old backport PPA is gone).
+    # Kylin V10 SP1 is Ubuntu 20.04 based (glibc 2.31), so the build still runs
+    # inside an ubuntu:20.04 arm64 container: linking against a newer glibc
+    # (22.04/24.04) would produce a package the target OS cannot load.
     runs-on: ubuntu-24.04-arm
     container:
       image: ubuntu:20.04
@@ -582,26 +582,14 @@ jobs:
         uses: ./.github/actions/get-version
 
       - name: Install system build dependencies
+        # Backend-only build: no GTK/WebKit toolchain and no Rust are required.
         run: |
           set -eux
           apt-get update
           apt-get install -y --no-install-recommends \
             ca-certificates curl wget file git \
             build-essential pkg-config \
-            python3 python3-venv python3-dev \
-            software-properties-common gnupg
-          # Tauri 2 requires webkit2gtk-4.1; focal only has 4.0, so add the
-          # backports PPA that provides 4.1 for focal.
-          add-apt-repository -y ppa:savoury1/webkit
-          apt-get update
-          if ! apt-cache show libwebkit2gtk-4.1-dev >/dev/null 2>&1; then
-            echo "::error::libwebkit2gtk-4.1-dev is unavailable; the savoury1/webkit PPA no longer provides it for focal."
-            exit 1
-          fi
-          apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
-            libayatana-appindicator3-dev libxdo-dev \
-            libssl-dev patchelf fakeroot
+            python3 python3-venv python3-dev
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -618,17 +606,10 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Set up Rust
-        run: |
-          set -eux
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain stable
-          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
-
       - name: Clean dist directory
         run: rm -rf dist && mkdir -p dist
 
-      - name: Build Tauri Linux package (.deb)
+      - name: Build Linux backend package (.deb)
         env:
           # Authenticate the python-build-standalone release lookup in
           # stage_python_runtime.py to avoid anonymous API rate limits.
@@ -637,27 +618,35 @@ jobs:
           chmod +x scripts/pack-tauri/build_linux_pyinstaller.sh
           bash scripts/pack-tauri/build_linux_pyinstaller.sh
 
-      - name: Generate Linux artifact checksum
+      - name: Generate Linux artifact checksums
         run: |
           shopt -s nullglob
-          artifacts=(dist/QwenPaw-Tauri-*-Linux-*.deb)
-          if [ ${#artifacts[@]} -ne 1 ]; then
-            echo "::error::Expected exactly one Linux .deb, found ${#artifacts[@]}"
+          debs=(dist/QwenPaw-Tauri-*-Linux-*.deb)
+          tarballs=(dist/QwenPaw-Tauri-*-Linux-*.tar.gz)
+          if [ ${#debs[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one Linux .deb, found ${#debs[@]}"
             exit 1
           fi
-          artifact="${artifacts[0]}"
-          (
-            cd "$(dirname "$artifact")"
-            sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256"
-          )
+          if [ ${#tarballs[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one Linux .tar.gz, found ${#tarballs[@]}"
+            exit 1
+          fi
+          for artifact in "${debs[0]}" "${tarballs[0]}"; do
+            (
+              cd "$(dirname "$artifact")"
+              sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+            )
+          done
 
-      - name: Upload Tauri Linux artifact
+      - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-Linux-arm64-${{ steps.version.outputs.version }}
           path: |
             dist/QwenPaw-Tauri-*-Linux-*.deb
             dist/QwenPaw-Tauri-*-Linux-*.deb.sha256
+            dist/QwenPaw-Tauri-*-Linux-*.tar.gz
+            dist/QwenPaw-Tauri-*-Linux-*.tar.gz.sha256
 
   upload-release:
     needs: [build-tauri-windows, build-tauri-macos, build-tauri-linux-arm64]
@@ -701,6 +690,7 @@ jobs:
           mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.deb . 2>/dev/null || true
+          mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.tar.gz . 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -711,6 +701,7 @@ jobs:
             QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
             QwenPaw-Tauri-*-Linux-*.deb
+            QwenPaw-Tauri-*-Linux-*.tar.gz
             qwenpaw-tauri-latest.json
           fail_on_unmatched_files: false
         env:
@@ -727,6 +718,7 @@ jobs:
             QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
             QwenPaw-Tauri-*-Linux-*.deb
+            QwenPaw-Tauri-*-Linux-*.tar.gz
           )
           if [ -f qwenpaw-tauri-latest.json ]; then
             files+=(qwenpaw-tauri-latest.json)

@@ -21,6 +21,13 @@ RUNTIME_PYTHON_DIR="${PYTHON_RUNTIME_DIR}/python"
 NATIVE_HOST_PYTHON="${RUNTIME_PYTHON_DIR}/bin/python3"
 BUILD_VENV="${DIST}/pyinstaller-venv"
 PYTHON_BIN="${BUILD_VENV}/bin/python"
+
+# Set to 1 (QWENPAW_SKIP_TAURI_STAGING=1) to build only the PyInstaller onedir
+# bundle and skip the Tauri-only staging: copying into
+# console/src-tauri/binaries, installing the Chrome native-messaging host
+# dependencies, and staging the bundled Node runtime. Used by the Linux
+# backend-only package (see build_linux_pyinstaller.sh).
+SKIP_TAURI_STAGING="${QWENPAW_SKIP_TAURI_STAGING:-0}"
 VERSION=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)
 
 echo "========================================="
@@ -159,40 +166,49 @@ SIZE=$(du -sh "${BACKEND_DIR}" | cut -f1)
 echo "Bundle size: ${SIZE}"
 echo ""
 
-# Copy to Tauri resources directory
-echo "== Copying to Tauri binaries directory =="
-DEST="${BINARIES_DIR}/qwenpaw-backend"
-rm -rf "${DEST}"
-mkdir -p "${DEST}"
-cp -R "${BACKEND_DIR}/." "${DEST}/"
-chmod +x "${DEST}/qwenpaw-backend"
-chmod +x "${DEST}/qwenpaw"
-echo "Copied to: ${DEST}"
-echo ""
+if [ "${SKIP_TAURI_STAGING}" = "1" ]; then
+    echo "== Skipping Tauri-only staging (QWENPAW_SKIP_TAURI_STAGING=1) =="
+    echo "   backend-only build: no console/src-tauri resources, no Chrome"
+    echo "   native-messaging host deps, no bundled Node runtime"
+    echo ""
+else
+    # Copy to Tauri resources directory
+    echo "== Copying to Tauri binaries directory =="
+    DEST="${BINARIES_DIR}/qwenpaw-backend"
+    rm -rf "${DEST}"
+    mkdir -p "${DEST}"
+    cp -R "${BACKEND_DIR}/." "${DEST}/"
+    chmod +x "${DEST}/qwenpaw-backend"
+    chmod +x "${DEST}/qwenpaw"
+    echo "Copied to: ${DEST}"
+    echo ""
 
-# The Chrome Native Messaging host runs under this standalone interpreter,
-# outside the PyInstaller backend, so its dependencies must be installed here.
-echo "== Installing bundled Python helper dependencies =="
-"$NATIVE_HOST_PYTHON" -m pip install \
-    --disable-pip-version-check \
-    --no-input \
-    --no-deps \
-    --only-binary=:all: \
-    -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
-"$NATIVE_HOST_PYTHON" \
-    "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
-    --check-runtime
-echo ""
+    # The Chrome Native Messaging host runs under this standalone interpreter,
+    # outside the PyInstaller backend, so its dependencies must be installed here.
+    echo "== Installing bundled Python helper dependencies =="
+    "$NATIVE_HOST_PYTHON" -m pip install \
+        --disable-pip-version-check \
+        --no-input \
+        --no-deps \
+        --only-binary=:all: \
+        -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
+    "$NATIVE_HOST_PYTHON" \
+        "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
+        --check-runtime
+    echo ""
 
-echo "== Staging bundled Node runtime =="
-"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_node_runtime.py" \
-    --dest "${BINARIES_DIR}/node-runtime"
-echo ""
+    echo "== Staging bundled Node runtime =="
+    "$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_node_runtime.py" \
+        --dest "${BINARIES_DIR}/node-runtime"
+    echo ""
+fi
 
 echo "========================================="
 echo "PyInstaller Build Complete!"
 echo "========================================="
 echo "Output:"
 echo "  Bundle: ${BACKEND_DIR}"
-echo "  Tauri resource: ${DEST}"
+if [ "${SKIP_TAURI_STAGING}" != "1" ]; then
+    echo "  Tauri resource: ${DEST}"
+fi
 echo ""
