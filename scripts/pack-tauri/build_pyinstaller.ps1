@@ -150,8 +150,13 @@ Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
 # half-removed pkg_resources (module present, declare_namespace gone), which
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
-Install-PythonPackages -Packages @("-e", ".[full]", "setuptools<82")
-Write-Host "Project dependencies installed with full extras" -ForegroundColor Green
+# Local-inference extras are intentionally omitted (see qwenpaw.spec excludes):
+# openai-whisper drags in torch/numba and dominates the installer size, yet the
+# default transcription provider is "disabled" and remote models are served by
+# an external llama-server.
+$QwenPawExtras = if ($env:QWENPAW_EXTRAS) { $env:QWENPAW_EXTRAS } else { "qwenpaw-data,hub,local,codex,qoder" }
+Install-PythonPackages -Packages @("-e", ".[$QwenPawExtras]", "setuptools<82")
+Write-Host "Project dependencies installed with extras: $QwenPawExtras" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package

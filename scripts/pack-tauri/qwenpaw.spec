@@ -8,6 +8,7 @@ bundle also includes a qwenpaw CLI executable for the Windows installer PATH
 option.
 """
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -18,6 +19,20 @@ from PyInstaller.utils.hooks import (
     copy_metadata,
     get_package_paths,
 )
+
+
+def has_package(name):
+    """Whether *name* is importable in the current build environment.
+
+    The local-inference extras (``whisper``/``torch``/...) are deliberately not
+    installed for this bundle, so the ``collect_*`` helpers that target them
+    must be guarded or PyInstaller aborts the build.
+    """
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
 
 REPO_ROOT = Path(SPECPATH).parent.parent
 
@@ -78,7 +93,8 @@ datas.append(
 datas += collect_data_files("reme")
 datas += collect_data_files("reme_auto_fin")
 datas += collect_data_files("reme_daily_paper")
-datas += collect_data_files("whisper")
+if has_package("whisper"):
+    datas += collect_data_files("whisper")
 datas += collect_data_files("agentscope")
 datas += collect_data_files(
     "agentscope.tool._builtin._scripts",
@@ -157,7 +173,6 @@ _metadata_pkgs = [
     "reme-auto-fin",
     "reme-daily-paper",
     "huggingface_hub",
-    "openai-whisper",
     "openai-codex",
     "openai-codex-cli-bin",
     "qoder-agent-sdk",
@@ -231,7 +246,7 @@ a = Analysis(
         "websockets",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
-        *collect_submodules("whisper"),
+        *(collect_submodules("whisper") if has_package("whisper") else []),
         *collect_submodules("chromadb"),
     ],
     hookspath=[],
@@ -239,15 +254,22 @@ a = Analysis(
     runtime_hooks=[],
     # QwenPaw talks to a remote llama-server, so the embedded llama.cpp
     # local-inference stack is intentionally NOT shipped in the desktop bundle
-    # (this keeps the installer small). The ModelScope SDK and any llama-cpp
-    # Python bindings are only used by qwenpaw.local_models to download GGUF
-    # weights for local inference, and both are imported lazily inside that
-    # package, so excluding them leaves startup and every remote-model path
-    # unaffected. Drop an entry here to restore local inference.
+    # (this keeps the installer small). The ModelScope SDK, huggingface_hub and
+    # any llama-cpp Python bindings are only used by qwenpaw.local_models to
+    # download GGUF weights for local inference, and all of them are imported
+    # lazily inside that package, so excluding them leaves startup and every
+    # remote-model path unaffected. The openai-whisper stack (torch/numba) is
+    # likewise dropped: only the opt-in "local_whisper" transcription path uses
+    # it (the default is "disabled"), while remote transcription ("whisper_api")
+    # keeps working. Drop an entry here to restore the corresponding feature.
     excludes=[
         "modelscope",
+        "huggingface_hub",
         "llama_cpp",
         "llama_cpp_python",
+        "whisper",
+        "torch",
+        "numba",
     ],
     noarchive=False,
 )

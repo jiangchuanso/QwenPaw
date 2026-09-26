@@ -96,8 +96,14 @@ echo "== Installing project dependencies =="
 # half-removed pkg_resources (module present, declare_namespace gone), which
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
-install_python_packages -e ".[full]" "setuptools<82"
-echo "Project dependencies installed with full extras"
+# Local-inference extras are intentionally omitted: QwenPaw talks to a remote
+# llama-server and the default transcription provider is "disabled", so shipping
+# the openai-whisper extra (which drags in torch/numba and dominates the
+# installer size) buys nothing. Keep this list in sync with the excludes in
+# scripts/pack-tauri/qwenpaw.spec.
+QWENPAW_EXTRAS="${QWENPAW_EXTRAS:-qwenpaw-data,hub,local,codex,qoder}"
+install_python_packages -e ".[${QWENPAW_EXTRAS}]" "setuptools<82"
+echo "Project dependencies installed with extras: ${QWENPAW_EXTRAS}"
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package
