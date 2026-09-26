@@ -648,8 +648,95 @@ jobs:
             dist/QwenPaw-Tauri-*-Linux-*.tar.gz
             dist/QwenPaw-Tauri-*-Linux-*.tar.gz.sha256
 
+  build-tauri-linux-arm64-desktop:
+    # MODERN-Linux Tauri desktop .deb (glibc >= 2.35, and libwebkit2gtk-4.1-0 on
+    # the target). Mirrors the job in desktop-build.yml; runs natively on the ARM
+    # runner with no focal container, so it does NOT install on Kylin V10 SP1.
+    needs: [check-release-secrets]
+    if: |
+      always() &&
+      (needs.check-release-secrets.result == 'success' ||
+       needs.check-release-secrets.result == 'skipped')
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Install system build dependencies
+        # Ubuntu 24.04 ships webkit2gtk-4.1 / libsoup3 in the official archive.
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev libxdo-dev \
+            libssl-dev patchelf file \
+            build-essential pkg-config curl wget git
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: console/src-tauri
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Tauri Linux desktop package (.deb)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x scripts/pack-tauri/build_linux_desktop.sh
+          bash scripts/pack-tauri/build_linux_desktop.sh
+
+      - name: Generate desktop artifact checksum
+        run: |
+          shopt -s nullglob
+          artifacts=(dist/QwenPaw-Desktop-Tauri-*-Linux-*.deb)
+          if [ ${#artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one modern Linux .deb, found ${#artifacts[@]}"
+            exit 1
+          fi
+          artifact="${artifacts[0]}"
+          (
+            cd "$(dirname "$artifact")"
+            sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+          )
+
+      - name: Upload modern Linux desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-Linux-arm64-desktop-${{ steps.version.outputs.version }}
+          path: |
+            dist/QwenPaw-Desktop-Tauri-*-Linux-*.deb
+            dist/QwenPaw-Desktop-Tauri-*-Linux-*.deb.sha256
+
   upload-release:
-    needs: [build-tauri-windows, build-tauri-macos, build-tauri-linux-arm64]
+    needs: [build-tauri-windows, build-tauri-macos, build-tauri-linux-arm64, build-tauri-linux-arm64-desktop]
     # Windows/macOS stay hard requirements; the Linux .deb is attached whenever
     # the ARM64 job succeeded (the artifact downloader only requires win+mac, and
     # the upload step tolerates the Linux glob matching nothing).
@@ -691,6 +778,7 @@ jobs:
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.deb . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.tar.gz . 2>/dev/null || true
+          mv QwenPaw-Desktop-Tauri-Linux-arm64-desktop-*/QwenPaw-Desktop-Tauri-*-Linux-*.deb . 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -702,6 +790,7 @@ jobs:
             QwenPaw-Tauri-*-macOS.zip
             QwenPaw-Tauri-*-Linux-*.deb
             QwenPaw-Tauri-*-Linux-*.tar.gz
+            QwenPaw-Desktop-Tauri-*-Linux-*.deb
             qwenpaw-tauri-latest.json
           fail_on_unmatched_files: false
         env:
@@ -719,6 +808,7 @@ jobs:
             QwenPaw-Tauri-*-macOS.zip
             QwenPaw-Tauri-*-Linux-*.deb
             QwenPaw-Tauri-*-Linux-*.tar.gz
+            QwenPaw-Desktop-Tauri-*-Linux-*.deb
           )
           if [ -f qwenpaw-tauri-latest.json ]; then
             files+=(qwenpaw-tauri-latest.json)
@@ -732,7 +822,7 @@ jobs:
             "${files[@]}"
 
   upload-oss:
-    needs: [build-tauri-windows, build-tauri-macos, build-tauri-linux-arm64, oss-secrets]
+    needs: [build-tauri-windows, build-tauri-macos, build-tauri-linux-arm64, build-tauri-linux-arm64-desktop, oss-secrets]
     # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked.
     # Also requires OSS secrets — otherwise the job is skipped, not failed.
     if: |

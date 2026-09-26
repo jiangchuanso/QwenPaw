@@ -73,7 +73,8 @@ jobs:
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.deb . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-Linux-*.tar.gz . 2>/dev/null || true
-          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip QwenPaw-Tauri-*-Linux-*.deb QwenPaw-Tauri-*-Linux-*.tar.gz)
+          mv QwenPaw-Desktop-Tauri-Linux-arm64-desktop-*/QwenPaw-Desktop-Tauri-*-Linux-*.deb . 2>/dev/null || true
+          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip QwenPaw-Tauri-*-Linux-*.deb QwenPaw-Tauri-*-Linux-*.tar.gz QwenPaw-Desktop-Tauri-*-Linux-*.deb)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::No desktop installers found to attach to the release"
             exit 1
