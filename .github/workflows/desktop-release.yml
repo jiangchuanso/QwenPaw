@@ -628,6 +628,10 @@ jobs:
           bash scripts/pack-tauri/build_linux_pyinstaller.sh
 
       - name: Generate Linux artifact checksums
+        # This job runs inside the ubuntu:20.04 container, where the default
+        # shell is `sh` (dash) — `shopt`/arrays are bash-only and would fail
+        # with "shopt: not found" (exit 127).
+        shell: bash
         run: |
           shopt -s nullglob
           debs=(dist/QwenPaw-Tauri-*-Linux-*.deb)
