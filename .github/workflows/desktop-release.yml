@@ -564,6 +564,10 @@ jobs:
     timeout-minutes: 120
     env:
       DEBIAN_FRONTEND: noninteractive
+      # Pin the CPython X.Y staged for the backend: the container's own python3
+      # (3.8 on focal) is only the bootstrap for the staging script, so the
+      # version to download must not be derived from it.
+      QWENPAW_PYTHON_RUNTIME_VERSION: "3.11"
     steps:
       - name: Install git (the ubuntu:20.04 image does not ship it)
         # actions/checkout requires git inside the container, so it has to be
@@ -598,10 +602,15 @@ jobs:
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Set up Python (container interpreter)
+        # No actions/setup-python here: it installs its interpreter into the
+        # mounted tool cache, and that build requires glibc 2.38+, so it cannot
+        # even start inside ubuntu:20.04 (glibc 2.31) — it fails with
+        # "version `GLIBC_2.38' not found". The apt python3 installed above is
+        # enough to run scripts/pack-tauri/stage_python_runtime.py, which
+        # downloads the python-build-standalone CPython actually used for the
+        # backend (pinned via QWENPAW_PYTHON_RUNTIME_VERSION in the job env).
+        run: python3 --version
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5

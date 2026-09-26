@@ -40,23 +40,40 @@ echo ""
 # Check prerequisites
 echo "== Checking prerequisites =="
 
-if command -v python3 >/dev/null 2>&1; then
-    BOOTSTRAP_PYTHON=$(command -v python3)
-elif command -v python >/dev/null 2>&1; then
-    BOOTSTRAP_PYTHON=$(command -v python)
-else
-    echo "ERROR: Python not found on PATH; it is required to stage the bundled runtime"
+# The PATH Python is only used to run the staging script, so it has to be able
+# to *start* in this environment. Container builds (the ubuntu:20.04 arm64 job)
+# put the runner's tool cache first on PATH, and that interpreter is built
+# against a newer glibc than the container ships, so it dies with
+# "version `GLIBC_2.xx' not found" before argparse even runs. Probe the
+# candidates and keep the first one that actually executes.
+BOOTSTRAP_PYTHON=""
+for candidate in python3 python /usr/bin/python3 /usr/local/bin/python3; do
+    resolved="$(command -v "$candidate" 2>/dev/null || true)"
+    if [ -n "$resolved" ] && "$resolved" -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+        BOOTSTRAP_PYTHON="$resolved"
+        break
+    fi
+done
+if [ -z "$BOOTSTRAP_PYTHON" ]; then
+    echo "ERROR: No runnable Python found on PATH; it is required to stage the bundled runtime"
     exit 1
 fi
+echo "Bootstrap Python: ${BOOTSTRAP_PYTHON} ($("${BOOTSTRAP_PYTHON}" --version 2>&1))"
 
 mkdir -p "${BINARIES_DIR}"
 
 # The staged python-build-standalone runtime is the canonical source for both
-# the helper interpreter and the PyInstaller build environment. The PATH
-# Python only selects the X.Y version to download and runs the staging script.
+# the helper interpreter and the PyInstaller build environment. The bootstrap
+# Python only runs the staging script; QWENPAW_PYTHON_RUNTIME_VERSION pins the
+# X.Y to download, which matters when the bootstrap interpreter is older than
+# the version the backend is built with (python3.8 inside ubuntu:20.04).
 echo "== Staging canonical Python runtime =="
-"$BOOTSTRAP_PYTHON" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
-    --dest "${PYTHON_RUNTIME_DIR}"
+STAGE_ARGS=(--dest "${PYTHON_RUNTIME_DIR}")
+if [ -n "${QWENPAW_PYTHON_RUNTIME_VERSION:-}" ]; then
+    STAGE_ARGS+=(--python-version "${QWENPAW_PYTHON_RUNTIME_VERSION}")
+fi
+"${BOOTSTRAP_PYTHON}" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
+    "${STAGE_ARGS[@]}"
 if [ ! -f "$NATIVE_HOST_PYTHON" ]; then
     echo "ERROR: Bundled Python interpreter not found at ${NATIVE_HOST_PYTHON}"
     exit 1
