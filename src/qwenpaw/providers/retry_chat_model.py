@@ -576,7 +576,7 @@ class RetryChatModel(ChatModelBase):
             if self._stream_first_content_timeout_override is not None
             else EnvVarLoader.get_float(
                 _STREAM_FIRST_CONTENT_TIMEOUT_ENV,
-                30.0,
+                300.0,
                 min_value=0.0,
             )
         )

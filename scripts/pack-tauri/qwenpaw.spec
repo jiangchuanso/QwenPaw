@@ -248,6 +248,18 @@ a = Analysis(
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *(collect_submodules("whisper") if has_package("whisper") else []),
         *collect_submodules("chromadb"),
+        # Built-in skill dependencies. These are imported by skill scripts that
+        # run as subprocesses (e.g. `python scripts/...` under agents/skills/),
+        # so PyInstaller's static analysis cannot discover them. Without these
+        # entries the bundled PDF/DOCX/XLSX/PPTX/make-skill scripts fail at
+        # runtime with ModuleNotFoundError. Keep in sync with the skill deps
+        # added to pyproject.toml [project].dependencies.
+        *collect_submodules("pypdf"),
+        *collect_submodules("pdfplumber"),
+        *collect_submodules("pdf2image"),
+        *collect_submodules("lxml"),
+        *collect_submodules("defusedxml"),
+        *collect_submodules("openpyxl"),
     ],
     hookspath=[],
     hooksconfig={},
