@@ -96,6 +96,12 @@
     "contributions": 1
   },
   {
+    "login": "BeiMu-new",
+    "avatar_url": "https://github.com/BeiMu-new.png",
+    "html_url": "https://github.com/BeiMu-new",
+    "contributions": 1
+  },
+  {
     "login": "bfglx",
     "avatar_url": "https://github.com/bfglx.png",
     "html_url": "https://github.com/bfglx",
@@ -304,6 +310,12 @@
     "avatar_url": "https://github.com/fancyboi999.png",
     "html_url": "https://github.com/fancyboi999",
     "contributions": 23
+  },
+  {
+    "login": "fanghua-ai",
+    "avatar_url": "https://github.com/fanghua-ai.png",
+    "html_url": "https://github.com/fanghua-ai",
+    "contributions": 1
   },
   {
     "login": "feng183043996",
@@ -531,7 +543,7 @@
     "login": "jiangchuanso",
     "avatar_url": "https://github.com/jiangchuanso.png",
     "html_url": "https://github.com/jiangchuanso",
-    "contributions": 8
+    "contributions": 11
   },
   {
     "login": "jilin6627-spec",
@@ -576,9 +588,9 @@
     "contributions": 1
   },
   {
-    "login": "kagura-agent",
-    "avatar_url": "https://github.com/kagura-agent.png",
-    "html_url": "https://github.com/kagura-agent",
+    "login": "kagura-chen",
+    "avatar_url": "https://github.com/kagura-chen.png",
+    "html_url": "https://github.com/kagura-chen",
     "contributions": 1
   },
   {
@@ -651,7 +663,7 @@
     "login": "Leirunlin",
     "avatar_url": "https://github.com/Leirunlin.png",
     "html_url": "https://github.com/Leirunlin",
-    "contributions": 89
+    "contributions": 90
   },
   {
     "login": "leoleils",
@@ -753,7 +765,7 @@
     "login": "Luohh5",
     "avatar_url": "https://github.com/Luohh5.png",
     "html_url": "https://github.com/Luohh5",
-    "contributions": 8
+    "contributions": 9
   },
   {
     "login": "LUOSENGWA",
@@ -945,7 +957,7 @@
     "login": "qbc2016",
     "avatar_url": "https://github.com/qbc2016.png",
     "html_url": "https://github.com/qbc2016",
-    "contributions": 128
+    "contributions": 130
   },
   {
     "login": "qoli",
@@ -963,7 +975,7 @@
     "login": "rayrayraykk",
     "avatar_url": "https://github.com/rayrayraykk.png",
     "html_url": "https://github.com/rayrayraykk",
-    "contributions": 258
+    "contributions": 259
   },
   {
     "login": "RerankerGuo",
@@ -1425,12 +1437,12 @@
     "login": "zhaozhuang521",
     "avatar_url": "https://github.com/zhaozhuang521.png",
     "html_url": "https://github.com/zhaozhuang521",
-    "contributions": 250
+    "contributions": 253
   },
   {
     "login": "zhijianma",
     "avatar_url": "https://github.com/zhijianma.png",
     "html_url": "https://github.com/zhijianma",
-    "contributions": 209
+    "contributions": 210
   }
 ]
