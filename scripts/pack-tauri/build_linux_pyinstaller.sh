@@ -125,6 +125,28 @@ URL="http://${HOST}:${PORT}"
 STATE_DIR="${HOME}/.qwenpaw"
 mkdir -p "${STATE_DIR}"
 
+# Open $1 in a browser. Prefer xdg-open (freedesktop default); fall back to
+# common browser binaries because some Kylin V10 SP1 installs have no default
+# browser association and xdg-open then fails silently.
+open_browser() {
+  url="$1"
+  if command -v xdg-open >/dev/null 2>&1; then
+    if xdg-open "${url}" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  for browser in firefox firefox-esr chromium chromium-browser \
+                 google-chrome google-chrome-stable kylin-browser \
+                 brave-browser microsoft-edge; do
+    if command -v "${browser}" >/dev/null 2>&1; then
+      nohup "${browser}" "${url}" >/dev/null 2>&1 &
+      return 0
+    fi
+  done
+  echo "QwenPaw is available at ${url}"
+  return 0
+}
+
 if ! curl -sf "${URL}/api/version" >/dev/null 2>&1; then
   echo "Starting QwenPaw server on ${URL} ..."
   nohup "${HERE}/qwenpaw" app --host "${HOST}" --port "${PORT}" \
@@ -139,11 +161,7 @@ if ! curl -sf "${URL}/api/version" >/dev/null 2>&1; then
   done
 fi
 
-if command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "${URL}" >/dev/null 2>&1 || true
-else
-  echo "QwenPaw is available at ${URL}"
-fi
+open_browser "${URL}"
 EOF
     chmod 755 "$1"
 }
@@ -213,25 +231,36 @@ cat > "${DEB_ROOT}/usr/bin/qwenpaw-web" << EOF
 exec ${INSTALL_DIR}/qwenpaw-web "\$@"
 EOF
 
-cat > "${DEB_ROOT}/usr/share/applications/qwenpaw.desktop" << 'EOF'
+# 3b-1. Icon: ship it under the hicolor theme (where the freedesktop spec
+# resolves Icon=<name>) AND under /usr/share/pixmaps (the Qt/UKUI fallback
+# path). The .desktop Icon= then uses an ABSOLUTE path so the launcher icon
+# shows on Kylin V10 SP1 (UKUI) without depending on a refreshed icon-theme
+# cache lookup.
+ICON_SRC="console/src-tauri/icons/icon.png"
+if [ -f "${ICON_SRC}" ]; then
+    cp "${ICON_SRC}" \
+       "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps/qwenpaw.png"
+    mkdir -p "${DEB_ROOT}/usr/share/pixmaps"
+    cp "${ICON_SRC}" "${DEB_ROOT}/usr/share/pixmaps/qwenpaw.png"
+    ICON_PATH="/usr/share/icons/hicolor/256x256/apps/qwenpaw.png"
+else
+    echo "  [WARN] ${ICON_SRC} not found; shipping without an icon"
+    ICON_PATH="qwenpaw"
+fi
+
+# Use an unquoted heredoc so ${ICON_PATH} is expanded.
+cat > "${DEB_ROOT}/usr/share/applications/qwenpaw.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Name=QwenPaw
 GenericName=Personal Assistant
 Comment=Start the QwenPaw server and open the web console
 Exec=/usr/bin/qwenpaw-web
-Icon=qwenpaw
+Icon=${ICON_PATH}
 Terminal=false
-Categories=Utility;Office;
+Categories=Utility;Office;Network;
 StartupNotify=false
 EOF
-
-if [ -f "console/src-tauri/icons/icon.png" ]; then
-    cp "console/src-tauri/icons/icon.png" \
-       "${DEB_ROOT}/usr/share/icons/hicolor/256x256/apps/qwenpaw.png"
-else
-    echo "  [WARN] console/src-tauri/icons/icon.png not found; shipping without an icon"
-fi
 
 cat > "${DEB_ROOT}/usr/lib/systemd/user/qwenpaw.service" << 'EOF'
 [Unit]
@@ -266,6 +295,7 @@ Architecture: ${DEB_ARCH}
 Maintainer: QwenPaw <noreply@qwenpaw.agentscope.io>
 Installed-Size: ${INSTALLED_SIZE}
 Depends: libc6 (>= 2.31), ca-certificates, curl
+Recommends: xdg-utils
 Homepage: https://github.com/agentscope-ai/QwenPaw
 Description: QwenPaw personal assistant (backend server, browser UI)
  QwenPaw runs a local FastAPI backend that serves both the HTTP API and the
@@ -283,6 +313,15 @@ set -e
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database -q /usr/share/applications || true
+fi
+
+# Refresh icon caches so the newly installed icon shows immediately on
+# Kylin V10 SP1 (UKUI) without a logout/reboot.
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
+  gtk-update-icon-cache -f -q /usr/share/pixmaps 2>/dev/null || true
+elif command -v update-icon-caches >/dev/null 2>&1; then
+  update-icon-caches /usr/share/icons/hicolor /usr/share/pixmaps 2>/dev/null || true
 fi
 
 cat << 'NOTICE'
@@ -308,7 +347,22 @@ fi
 exit 0
 EOF
 
-chmod 755 "${DEB_ROOT}/DEBIAN/postinst" "${DEB_ROOT}/DEBIAN/prerm"
+cat > "${DEB_ROOT}/DEBIAN/postrm" << 'EOF'
+#!/bin/sh
+set -e
+
+# Drop the icon from the caches after the files are removed.
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
+  gtk-update-icon-cache -f -q /usr/share/pixmaps 2>/dev/null || true
+elif command -v update-icon-caches >/dev/null 2>&1; then
+  update-icon-caches /usr/share/icons/hicolor /usr/share/pixmaps 2>/dev/null || true
+fi
+
+exit 0
+EOF
+
+chmod 755 "${DEB_ROOT}/DEBIAN/postinst" "${DEB_ROOT}/DEBIAN/prerm" "${DEB_ROOT}/DEBIAN/postrm"
 
 # 3d. Tarball extras: README next to the binaries.
 write_readme "${TAR_ROOT}/README.txt"
