@@ -245,14 +245,13 @@ function ACPPage() {
 
   const pickNodePath = useCallback(async () => {
     if (isDesktopTauriRuntime()) {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
+      const { showOpenDialog } = await import("../../../desktop/runtime");
+      const selected = await showOpenDialog({
         multiple: false,
-        directory: false,
         title: t("acp.selectNodePath"),
       });
-      if (Array.isArray(selected)) return selected[0] || null;
-      return selected || null;
+      const value = Array.isArray(selected) ? selected[0] : selected;
+      return value || null;
     }
 
     const value = window.prompt(

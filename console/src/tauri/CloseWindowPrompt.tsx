@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke, on } from "../desktop/runtime";
 import { Button, Checkbox, Modal, Spin, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -71,52 +70,16 @@ export default function CloseWindowPrompt() {
   useEffect(() => {
     if (!isTauriRuntime()) return undefined;
 
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    void listen(CLOSE_REQUESTED_EVENT, () => handleCloseRequested())
-      .then((cleanup) => {
-        if (disposed) {
-          cleanup();
-          return;
-        }
-        unlisten = cleanup;
-      })
-      .catch((err) => {
-        console.error("Failed to listen for close requests:", err);
-      });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
+    return on(CLOSE_REQUESTED_EVENT, () => handleCloseRequested());
   }, [handleCloseRequested]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return undefined;
 
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    void listen(SHUTDOWN_STARTED_EVENT, () => {
+    return on(SHUTDOWN_STARTED_EVENT, () => {
       setShuttingDown(true);
       setOpen(true);
-    })
-      .then((cleanup) => {
-        if (disposed) {
-          cleanup();
-          return;
-        }
-        unlisten = cleanup;
-      })
-      .catch((err) => {
-        console.error("Failed to listen for shutdown status:", err);
-      });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
+    });
   }, []);
 
   useEffect(() => {

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Regression tests for desktop packaging workflows."""
 
-import json
 from pathlib import Path
 import tomllib
 
@@ -38,10 +37,11 @@ def test_fork_desktop_build_uses_supported_python() -> None:
     supported = SpecifierSet(project["project"]["requires-python"])
     workflow = _load_workflow("fork-verify-desktop.yml")
 
-    for job_name in ("tauri-macos", "tauri-windows"):
+    for job_name in ("electron-macos", "electron-windows"):
+        steps = workflow["jobs"][job_name]["steps"]
         setup_python = next(
             step
-            for step in workflow["jobs"][job_name]["steps"]
+            for step in steps
             if step.get("uses", "").startswith("actions/setup-python@")
         )
         version = Version(str(setup_python["with"]["python-version"]))
@@ -113,29 +113,27 @@ def test_download_helper_resolves_verifier_from_its_own_checkout() -> None:
     assert 'python3 "$script_dir/verify_desktop_artifacts.py"' in script
 
 
-def test_nsis_template_avoids_solid_compression() -> None:
-    """Large desktop payloads must not use NSIS solid compression."""
-    config = json.loads(
-        (REPO_ROOT / "console/src-tauri/tauri.conf.json").read_text(
-            encoding="utf-8",
-        ),
-    )
-    package_lock = json.loads(
-        (REPO_ROOT / "console/package-lock.json").read_text(
-            encoding="utf-8",
-        ),
-    )
-    nsis = config["bundle"]["windows"]["nsis"]
-    template = (REPO_ROOT / "console/src-tauri" / nsis["template"]).read_text(
-        encoding="utf-8",
-    )
-    tauri_cli_version = package_lock["packages"][
-        "node_modules/@tauri-apps/cli"
-    ]["version"]
+def test_windows_installer_avoids_solid_compression() -> None:
+    """The Windows payload must not be unpacked from a solid-compressed block.
 
-    assert nsis["compression"] == "zlib"
-    # This is a version-sync reminder, not an upstream content check.
-    # When upgrading the CLI, compare the template with that release.
-    assert f"Vendored from Tauri v{tauri_cli_version}" in template
-    assert 'SetCompressor "{{compression}}"' in template
-    assert "SetCompressor /SOLID" not in template
+    The Tauri build carried a vendored copy of the CLI's installer script, so
+    the assertion used to read that file directly. The Electron shell has no
+    such template -- electron-builder ships its own and we stay on the default
+    -- so what is left to guard is the configuration: the Windows target must
+    stay NSIS-based, and no custom installer script may turn solid compression
+    back on.
+    """
+    config = yaml.safe_load(
+        (REPO_ROOT / "console" / "electron-builder.yml").read_text(
+            encoding="utf-8",
+        ),
+    )
+
+    assert "nsis" in config["win"]["target"], config["win"]["target"]
+
+    nsis = config["win"].get("nsis") or {}
+    template = nsis.get("template")
+    if template is None:
+        return
+    script = (REPO_ROOT / "console" / template).read_text(encoding="utf-8")
+    assert "SetCompressor /SOLID" not in script

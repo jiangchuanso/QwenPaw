@@ -1,0 +1,51 @@
+appId: io.agentscope.qwenpaw.desktop
+productName: QwenPaw
+copyright: Copyright © QwenPaw Contributors
+# Predictable artifact names so the CI release plumbing can glob them (see
+# scripts/pack-electron/build_{linux,macos,win}.sh). ${os} is win|mac|linux.
+artifactName: QwenPaw-${version}-${os}-${arch}.${ext}
+directories:
+  # Relative to this project dir (console/), which is where the build scripts
+  # run `npx electron-builder` from -- NOT relative to the repository root. A
+  # `../../dist` here escapes the checkout entirely: the installers land next
+  # to the repo ($GITHUB_WORKSPACE/../dist) and the upload steps, which glob
+  # dist/QwenPaw-*, find nothing. `buildResources` failed the same way, so the
+  # packages shipped electron-builder's default icon.
+  output: ../dist
+  buildResources: ../scripts/pack/assets
+files:
+  - "electron/**/*"
+  # The backend + python/node runtimes are shipped via extraResources (below),
+  # not packed into the asar — keep them out of `files` to avoid double-bundling
+  # and asar-packing multi-hundred-MB binaries.
+  - "!electron/binaries/**/*"
+extraResources:
+  - from: "electron/binaries"
+    to: "binaries"
+mac:
+  category: public.app-category.productivity
+  target: [dmg, zip]
+  hardenedRuntime: true
+win:
+  target: [nsis]
+  sign: null
+linux:
+  target: [deb]
+  category: Utility
+  maintainer: QwenPaw
+  desktop:
+    name: QwenPaw
+    comment: Personal AI Assistant
+# `linux` has no `depends` property (electron-builder 25 rejects the whole
+# config, which also breaks the macOS/Windows jobs that load this file): the
+# Debian control fields belong to the `deb` target, declared at the top level.
+deb:
+  # System libraries Chromium/Electron needs at runtime (present on Kylin V10
+  # SP1 / Ubuntu 20.04). Kept as Recommends-free Depends so the .deb is explicit.
+  depends:
+    - libnss3
+    - libgtk-3-0
+    - libgbm1
+    - libasound2
+    - libnotify4
+    - ca-certificates

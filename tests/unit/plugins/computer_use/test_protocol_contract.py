@@ -30,10 +30,14 @@ from computer_use.protocol import (
 )
 from qwenpaw.app.computer_use import COMPUTER_USE_PROTOCOL_VERSION
 
+# The helper lives outside the shell: when the desktop shell moved from
+# Tauri to Electron it became its own crate (it was always spawned as a
+# child process, it never linked the shell).
 _SERVER = (
     Path(__file__).resolve().parents[4]
     / "console"
-    / "src-tauri"
+    / "native"
+    / "computer-use-helper"
     / "src"
     / "computer_use_server"
 )

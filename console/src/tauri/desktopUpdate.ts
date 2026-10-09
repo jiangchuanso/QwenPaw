@@ -1,6 +1,15 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke, on } from "../desktop/runtime";
 import { isDesktopApp } from "./backendRuntime";
+
+/** Unsubscribe handle for a runtime event subscription. */
+type UnlistenFn = () => void;
+
+// Adapt the runtime's synchronous `on(event, handler)` to the Tauri
+// `listen(event, cb)` shape so the call sites below stay unchanged.
+const listen = <T>(
+  event: string,
+  cb: (payload: { payload: T }) => void,
+): UnlistenFn => on<T>(event, (payload) => cb({ payload }));
 
 export interface DesktopUpdateInfo {
   version: string;
@@ -61,14 +70,12 @@ export async function onUpdateEvent(
 ): Promise<UnlistenFn> {
   const unlisteners: UnlistenFn[] = [];
 
-  const addListener = async <T>(
+  const addListener = <T>(
     eventName: string,
     handler?: (payload: T) => void,
   ) => {
     if (!handler) return;
-    unlisteners.push(
-      await listen<T>(eventName, (event) => handler(event.payload)),
-    );
+    unlisteners.push(listen<T>(eventName, (event) => handler(event.payload)));
   };
 
   const withoutPayload = (
@@ -76,16 +83,11 @@ export async function onUpdateEvent(
   ): ((payload: unknown) => void) | undefined =>
     handler ? () => handler() : undefined;
 
-  await Promise.all([
-    addListener("update:check-start", withoutPayload(handlers.onCheckStart)),
-    addListener("update:download-progress", handlers.onDownloadProgress),
-    addListener(
-      "update:install-start",
-      withoutPayload(handlers.onInstallStart),
-    ),
-    addListener("update:download-done", handlers.onDownloadDone),
-    addListener("update:error", handlers.onError),
-  ]);
+  addListener("update:check-start", withoutPayload(handlers.onCheckStart));
+  addListener("update:download-progress", handlers.onDownloadProgress);
+  addListener("update:install-start", withoutPayload(handlers.onInstallStart));
+  addListener("update:download-done", handlers.onDownloadDone);
+  addListener("update:error", handlers.onError);
 
   return () => {
     unlisteners.forEach((u) => u());

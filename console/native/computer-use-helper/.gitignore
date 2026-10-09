@@ -1,0 +1,4 @@
+# Local cargo output. The repo root ignores neither `target/` nor `/gen/`
+# (console/src-tauri used to carry its own ignore file), and this crate is
+# built from scripts/pack-electron/build_{win,macos}.sh as well as by hand.
+/target/

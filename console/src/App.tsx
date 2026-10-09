@@ -65,7 +65,6 @@ import {
 } from "./auth/gate";
 import type { AuthStatusResponse } from "./api/modules/auth";
 import { hubApi, type HubHealth } from "./api/modules/hub";
-import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
 import { isSafeCssColor } from "./utils/chatThemeColor";
@@ -468,7 +467,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   // users cannot open DevTools via right-click. DevTools is still available
   // through the hidden 8-click logo gesture handled in Header.tsx.
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktopTauriRuntime()) return;
     const preventContextMenu = (e: MouseEvent) => e.preventDefault();
     window.addEventListener("contextmenu", preventContextMenu);
     return () => window.removeEventListener("contextmenu", preventContextMenu);

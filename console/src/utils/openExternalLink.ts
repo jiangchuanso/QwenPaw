@@ -2,7 +2,7 @@
  * Cross-runtime external link opener for browser, legacy pywebview, and Tauri.
  * It validates supported protocols and delegates desktop shells to native openers.
  */
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, isDesktopRuntime } from "../desktop/runtime";
 import { getPyWebViewApi } from "./pywebview";
 
 const URL_WITH_SCHEME_RE = /^[a-z][a-z\d+\-.]*:/i;
@@ -75,9 +75,11 @@ export function resolveSupportedExternalUrl(url: string): string | null {
 
 /** Detect Tauri even after the app has navigated to the backend-hosted console. */
 export function isDesktopTauriRuntime(): boolean {
-  // When Tauri loads a remote-origin console, injected internals can still be
-  // available even when the SDK helper does not report the runtime.
-  return isTauri() || hasTauriInternals();
+  // True for Tauri or Electron shells. The original Tauri-only check probed
+  // `window.isTauri` / `__TAURI_INTERNALS__`; detection now also covers Electron
+  // (see ../desktop/runtime), so the same open-via-shell path is reused.
+  // Re-probe on every call: the shell bridge can appear after this module loads.
+  return isDesktopRuntime() || hasTauriInternals();
 }
 
 /** Check for Tauri's injected invoke hook when the SDK helper is unavailable. */

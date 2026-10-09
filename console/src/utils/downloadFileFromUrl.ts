@@ -2,8 +2,7 @@
  * Cross-runtime file download helper for browser, legacy pywebview, and Tauri.
  * Tauri streams local backend downloads in Rust to avoid proxying localhost.
  */
-import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { invoke, showSaveDialog } from "../desktop/runtime";
 import {
   isDesktopTauriRuntime,
   isHttpExternalUrl,
@@ -98,11 +97,11 @@ async function downloadWithPyWebView(
   }
 }
 
-/** Ask Tauri's native dialog plugin for the destination path. */
+/** Ask the desktop shell's native save dialog for the destination path. */
 async function getTauriSavePath(filename: string): Promise<string> {
-  const savePath = await save({
-    defaultPath: filename,
-  });
+  // Routes to Tauri's dialog plugin on Tauri, or Electron's native dialog on
+  // Electron (see ../desktop/runtime).
+  const savePath = await showSaveDialog(filename);
   // No path means the user cancelled the native save dialog; it is not an error.
   if (!savePath) {
     throw new DownloadCancelledError();

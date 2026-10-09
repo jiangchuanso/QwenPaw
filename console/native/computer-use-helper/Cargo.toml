@@ -1,0 +1,89 @@
+[package]
+name = "qwenpaw-computer-use-helper"
+version = "0.1.0"
+description = "Computer Use automation helper process for the QwenPaw Desktop shell. Started by the shell, spoken to over a named pipe / Unix socket."
+authors = ["QwenPaw Contributors"]
+license = "Apache-2.0"
+repository = "https://github.com/agentscope-ai/QwenPaw"
+edition = "2021"
+rust-version = "1.77.2"
+# A single explicit binary target: keeping autobins on would register
+# src/bin/qwenpaw-computer-use-helper.rs a second time under the same name.
+autobins = false
+
+[[bin]]
+name = "qwenpaw-computer-use-helper"
+path = "src/bin/qwenpaw-computer-use-helper.rs"
+
+# Split out of console/src-tauri (the Tauri shell) when the desktop shell moved
+# to Electron: this helper was already a child process -- it never linked Tauri
+# -- so it only carries what the automation protocol itself uses. The shell-side
+# counterpart (spawning it, the control endpoint, the macOS .app seeding) lives
+# in console/electron/computerUse.js.
+[dependencies]
+serde_json = "1.0"
+log = "0.4"
+base64 = "0.22"
+sha2 = "0.10"
+
+# Platform backends. The feature lists are copied verbatim from the shell crate
+# so the referenced objc2 classes / windows-rs namespaces cannot drift.
+# webview2-com is deliberately absent: only the Tauri webview used it, and it
+# would drag the WebView2 SDK into this build.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Graphics",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Graphics_Imaging",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_System_Com",
+    "Win32_System_SystemInformation",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_Threading",
+    "Win32_System_JobObjects",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = { version = "0.10", features = ["link"] }
+# `highsierra` gates the non-variadic scroll-event constructor, which is the
+# only way to synthesise a scroll without hand-writing variadic FFI. It gates
+# nothing else.
+core-graphics = { version = "0.24", features = ["link", "highsierra", "elcapitan"] }
+accessibility = "0.2"
+accessibility-sys = "0.2"
+jpeg-encoder = "0.6"
+libc = "0.2"
+block2 = "0.6"
+objc2 = "0.6"
+dispatch2 = "0.3"
+# `NSApplication` needs `NSResponder` too: the class is declared behind both
+# features (it is NSResponder's subclass), so importing it without the
+# superclass feature fails to resolve.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSResponder", "NSRunningApplication", "NSWorkspace", "block2", "libc"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["CGImage"] }
+# `NSArray::iter` lives behind `NSEnumerator`; without it ScreenCaptureKit's
+# window list cannot be scanned for the requested window id.
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSEnumerator", "NSError", "NSString"] }
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["SCShareableContent", "SCScreenshotManager", "SCStream", "block2", "objc2-core-graphics"] }

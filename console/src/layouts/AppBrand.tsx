@@ -10,7 +10,7 @@ import {
 import { Button, Modal } from "@agentscope-ai/design";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../desktop/runtime";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
