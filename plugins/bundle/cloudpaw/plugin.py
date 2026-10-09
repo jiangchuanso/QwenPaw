@@ -213,6 +213,42 @@ def _get_aliyun_cli_tgz_url() -> str | None:
     return None
 
 
+# -- Install gating (never block plugin load on a slow/unreachable CDN) ------
+
+
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _env_flag_enabled(name: str) -> bool:
+    """Return True when an environment variable holds a truthy value."""
+    return os.environ.get(name, "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _should_skip_aliyun_cli_install() -> str | None:
+    """Return a skip reason when auto-install must not run, else ``None``.
+
+    Auto-install downloads from ``aliyuncli.alicdn.com`` and can block plugin
+    loading for minutes when that CDN is slow or unreachable — notably on
+    hosted CI runners, where it stalls ``POST /api/plugins/install`` until the
+    client times out. It is skipped when:
+
+    - ``QWENPAW_SKIP_ALIYUN_CLI_INSTALL`` is truthy (explicit opt-out), or
+    - a CI environment is detected (``CI`` / ``GITHUB_ACTIONS``), unless
+      ``QWENPAW_ALIYUN_CLI_INSTALL_IN_CI`` is truthy to force it.
+
+    The CLI is only an optional dependency of the ``alicloud_cli`` skill, so
+    skipping it must never fail plugin loading.
+    """
+    if _env_flag_enabled("QWENPAW_SKIP_ALIYUN_CLI_INSTALL"):
+        return "QWENPAW_SKIP_ALIYUN_CLI_INSTALL is set"
+
+    in_ci = _env_flag_enabled("CI") or _env_flag_enabled("GITHUB_ACTIONS")
+    if in_ci and not _env_flag_enabled("QWENPAW_ALIYUN_CLI_INSTALL_IN_CI"):
+        return "CI environment detected (CI/GITHUB_ACTIONS)"
+
+    return None
+
+
 # -- Installation strategies (tried in priority order per platform) ----------
 
 
@@ -222,11 +258,18 @@ def _install_via_bash_script() -> bool:
         return False
     try:
         logger.info("Installing aliyun CLI via official install.sh script")
+        # Pipe the script into bash. The previous form
+        # ``bash -c "$(curl -fsSL ...)"`` expanded the fetched *content* into
+        # the command line, so its shebang was executed as a command and the
+        # call always died with
+        # ``/bin/bash: line 1: #!/usr/bin/env: No such file or directory``
+        # (exit 127) before ever reaching the tgz fallback.
         subprocess.run(
             [
                 "/bin/bash",
                 "-c",
-                "$(curl -fsSL https://aliyuncli.alicdn.com/install.sh)",
+                "set -o pipefail; "
+                "curl -fsSL https://aliyuncli.alicdn.com/install.sh | bash",
             ],
             check=True,
             timeout=180,
@@ -404,6 +447,16 @@ async def _ensure_aliyun_cli() -> None:
             logger.info("aliyun CLI already installed: %s", version)
         except Exception:
             logger.info("aliyun CLI found on PATH")
+        return
+
+    skip_reason = _should_skip_aliyun_cli_install()
+    if skip_reason is not None:
+        logger.warning(
+            "aliyun CLI not found; auto-install skipped (%s). "
+            "Install it manually if you need the alicloud_cli skill: "
+            "https://help.aliyun.com/zh/cli/",
+            skip_reason,
+        )
         return
 
     logger.info("aliyun CLI not found, attempting auto-install...")

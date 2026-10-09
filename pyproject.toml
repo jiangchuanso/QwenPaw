@@ -50,6 +50,17 @@ dependencies = [
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
+    # Built-in skill Python dependencies — bundled so the PDF/DOCX/XLSX/PPTX/
+    # make-skill skills work out of the box without a manual `pip install`.
+    # (System binaries like LibreOffice/soffice, poppler's pdftoppm, git and
+    # coreutils `timeout`/`gtimeout` are NOT pip-installable and remain
+    # external prerequisites declared in each skill's SKILL.md.)
+    "pypdf>=4.0.0",
+    "pdfplumber>=0.11.0",
+    "pdf2image>=1.16.0",
+    "lxml>=4.9.0",
+    "defusedxml>=0.7.0",
+    "openpyxl>=3.1.0",
     "agent-client-protocol>=0.9.0,<0.11.0",
     # Streaming-markdown terminal UI for the bundled `qwenpaw` TUI
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
