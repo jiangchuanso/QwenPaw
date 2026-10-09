@@ -90,11 +90,39 @@ jobs:
       verify_pip: true
       verify_script_install: true
 
+  # ── Preflight: skip the PyPI publish when no API token is configured ───────
+  # With an empty PYPI_API_TOKEN, gh-action-pypi-publish falls back to Trusted
+  # Publishing (OIDC), which then dies with "Trusted publishing exchange
+  # failure" — the job has no id-token permission and a fork has no publisher
+  # configured on PyPI. A job-level `if` cannot read `secrets`, so the presence
+  # check runs as a step whose output gates the publish job.
+  pypi-secrets:
+    name: Check PyPI token
+    runs-on: ubuntu-latest
+    outputs:
+      has-token: ${{ steps.check.outputs.has-token }}
+    steps:
+      - name: Check PyPI token
+        id: check
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -n "$PYPI_API_TOKEN" ]; then
+            echo "has-token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-token=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::PYPI_API_TOKEN is not configured; skipping the PyPI publish job."
+          fi
+
   # ── Stage 3: Publish to PyPI ───────────────────────────────────────────────
   publish:
-    needs: [verify, build]
+    needs: [verify, build, pypi-secrets]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
+    # Also requires PYPI_API_TOKEN — otherwise the job is skipped, not failed.
+    if: |
+      needs.pypi-secrets.outputs.has-token == 'true' &&
+      (github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true'))
     steps:
       - name: Download dist artifacts
         uses: actions/download-artifact@v4

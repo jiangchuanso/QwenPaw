@@ -310,16 +310,30 @@ jobs:
             `;
 
             // Create issue first (without assignees to avoid 422 on
-            // repos where roster members aren't collaborators)
-            const { data: issue } = await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              title: `[Release Duty] QwenPaw ${tag} (${typeBadge}) — Installation Verification`,
-              body:  body,
-              labels: ['release-duty', releaseType === 'stable' || releaseType === 'post'
-                ? 'stable'
-                : 'pre-release'],
-            });
+            // repos where roster members aren't collaborators).
+            // Forks commonly have Issues disabled, which returns HTTP 410 and
+            // would red the whole release pipeline — warn and skip instead.
+            let issue;
+            try {
+              ({ data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                title: `[Release Duty] QwenPaw ${tag} (${typeBadge}) — Installation Verification`,
+                body:  body,
+                labels: ['release-duty', releaseType === 'stable' || releaseType === 'post'
+                  ? 'stable'
+                  : 'pre-release'],
+              }));
+            } catch (err) {
+              if (err.status === 410 || /disabled/i.test(err.message || '')) {
+                core.warning(
+                  `Skipping Release Duty issue: ${err.message}. ` +
+                  `Enable Issues in this repository to receive duty issues.`
+                );
+                return;
+              }
+              throw err;
+            }
             console.log(
               `Created duty issue #${issue.number}: ${issue.html_url}`
             );

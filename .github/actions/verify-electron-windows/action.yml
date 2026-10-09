@@ -1,9 +1,10 @@
-name: Verify Desktop (Tauri Windows)
+name: Verify Desktop (Electron Windows)
 description: |
-  Install NSIS-built Tauri desktop, launch the shell with CDP enabled,
-  and drive the real WebView2 through the shared Playwright UI verifier.
-  Stop / cleanup / log upload steps live in the caller workflow because
-  composite actions cannot use `if: always()`.
+  Install the NSIS-built Electron desktop, launch the shell headless to start
+  the bundled backend, and drive the SPA through the shared Playwright UI
+  verifier with a standalone headless Chromium. Stop / cleanup / log upload
+  steps live in the caller workflow because composite actions cannot use
+  `if: always()`.
 
 inputs:
   dashscope-api-key:
@@ -26,20 +27,22 @@ runs:
         python -m pip install -r scripts/verify/requirements-verify.txt
         python -m playwright install chromium --with-deps
 
-    - name: Verify desktop (Tauri Windows)
+    - name: Launch Electron (headless backend)
+      shell: pwsh
+      run: |
+        . scripts/verify/launch_electron_windows.ps1
+
+    - name: Verify desktop (Electron)
       shell: pwsh
       env:
         QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
         PYTHONIOENCODING: utf-8
         ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
       run: |
-        . scripts/verify/launch_tauri_windows.ps1
         $verifyArgs = @(
           "scripts/verify/desktop_verify.py",
           "--base-url", $env:BASE_URL,
-          "--ui-mode", "tauri-windows",
-          "--headed",
-          "--cdp-url", $env:CDP_URL
+          "--ui-mode", "electron"
         )
         if ($env:ALLOW_FLAKY_LLM -eq "true") {
           $verifyArgs += "--allow-flaky-llm"

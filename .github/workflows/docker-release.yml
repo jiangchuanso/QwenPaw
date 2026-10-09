@@ -36,9 +36,38 @@ jobs:
       verify_docker: true
     secrets: inherit
 
+  # ── Preflight: skip the build/push when registry credentials are absent ────
+  # The multi-arch build tags BOTH DockerHub and Aliyun ACR, so all four
+  # secrets are required. A job-level `if` cannot read the secrets context, so
+  # the presence check runs as a step whose output gates the build job: on a
+  # fork without credentials the stage shows as skipped instead of failing at
+  # the docker/login-action step.
+  registry-creds:
+    name: Check registry credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has-creds: ${{ steps.check.outputs.has-creds }}
+    steps:
+      - name: Check registry credentials
+        id: check
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          ALIYUN_ACR_USERNAME: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_PASSWORD" ] && \
+             [ -n "$ALIYUN_ACR_USERNAME" ] && [ -n "$ALIYUN_ACR_PASSWORD" ]; then
+            echo "has-creds=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-creds=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::DockerHub/ACR credentials are not configured; skipping the multi-arch image build and push."
+          fi
+
   # ── Stage 2: Build multi-arch and push ─────────────────────────────────────
   build-and-push:
-    needs: [verify-docker]
+    needs: [verify-docker, registry-creds]
+    if: needs.registry-creds.outputs.has-creds == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

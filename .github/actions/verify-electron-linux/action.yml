@@ -1,0 +1,49 @@
+name: Verify Desktop (Electron Linux)
+description: |
+  Install the Electron .deb, launch the shell headless to start the bundled
+  backend, and drive the SPA through the shared Playwright UI verifier with a
+  standalone headless Chromium. Stop / cleanup / log upload steps live in the
+  caller workflow because composite actions cannot use `if: always()`.
+
+inputs:
+  dashscope-api-key:
+    description: DashScope API key (empty -> verifier skips LLM round)
+    required: false
+    default: ""
+  allow-flaky-llm:
+    description: If 'true', verifier exits 0 on LLM retry exhaustion
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install verify deps (Playwright + Chromium)
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --upgrade pip
+        python3 -m pip install -r scripts/verify/requirements-verify.txt
+        python3 -m playwright install chromium --with-deps
+
+    - name: Launch Electron (headless backend)
+      shell: bash
+      run: |
+        set -euo pipefail
+        bash scripts/verify/launch_electron_linux.sh
+
+    - name: Verify desktop (Electron)
+      shell: bash
+      env:
+        QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
+        ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
+      run: |
+        set -euo pipefail
+        extra_flags=()
+        if [ "$ALLOW_FLAKY_LLM" = "true" ]; then
+          extra_flags+=("--allow-flaky-llm")
+        fi
+        python3 scripts/verify/desktop_verify.py \
+          --base-url "$BASE_URL" \
+          --ui-mode electron \
+          ${extra_flags[@]+"${extra_flags[@]}"}

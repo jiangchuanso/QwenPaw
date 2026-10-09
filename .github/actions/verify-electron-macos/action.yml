@@ -1,9 +1,9 @@
-name: Verify Desktop (Tauri macOS)
+name: Verify Desktop (Electron macOS)
 description: |
-  Unpack Tauri .app zip, launch the shell (open <APP>), and drive the
-  embedded WebKit through the shared Playwright UI verifier. Stop /
-  cleanup / log upload steps live in the caller workflow because
-  composite actions cannot use `if: always()`.
+  Unpack the Electron .app zip, launch the shell headless to start the bundled
+  backend, and drive the SPA through the shared Playwright UI verifier with a
+  standalone headless Chromium. Stop / cleanup / log upload steps live in the
+  caller workflow because composite actions cannot use `if: always()`.
 
 inputs:
   dashscope-api-key:
@@ -18,28 +18,32 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install verify deps (Playwright + WebKit)
+    - name: Install verify deps (Playwright + Chromium)
       shell: bash
       run: |
         set -euo pipefail
         python -m pip install --upgrade pip
         python -m pip install -r scripts/verify/requirements-verify.txt
-        python -m playwright install webkit --with-deps
+        python -m playwright install chromium --with-deps
 
-    - name: Verify desktop (Tauri macOS)
+    - name: Launch Electron (headless backend)
+      shell: bash
+      run: |
+        set -euo pipefail
+        bash scripts/verify/launch_electron_macos.sh
+
+    - name: Verify desktop (Electron)
       shell: bash
       env:
         QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
         ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
       run: |
         set -euo pipefail
-        source scripts/verify/launch_tauri_macos.sh
         extra_flags=()
         if [ "$ALLOW_FLAKY_LLM" = "true" ]; then
           extra_flags+=("--allow-flaky-llm")
         fi
         python scripts/verify/desktop_verify.py \
           --base-url "$BASE_URL" \
-          --ui-mode tauri-macos \
-          --headed \
+          --ui-mode electron \
           ${extra_flags[@]+"${extra_flags[@]}"}

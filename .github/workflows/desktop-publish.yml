@@ -5,10 +5,13 @@
 #   - upload-release: attach the installers to the (draft) GitHub Release by tag
 #     (this is safe to run on a fork, where it targets the fork's own release).
 #   - upload-oss: push the VERSIONED files + metadata to the download OSS
-#     bucket. The `latest` files, updater manifest and index are promoted
-#     separately AFTER the release is published — see desktop-promote.yml.
+#     bucket. The `latest` files and index are promoted separately AFTER the
+#     release is published — see desktop-promote.yml.
 #     Skipped when dry_run=true so fork verification never touches the shared
 #     production bucket.
+#
+# Electron-only: the former Tauri auto-updater (minisign sidecars + manifest)
+# is intentionally NOT produced — see desktop-build.yml.
 
 name: Desktop Publish (reusable)
 
@@ -69,9 +72,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
-          mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
-          mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
-          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip)
+          mv QwenPaw-Desktop-Windows-*/QwenPaw-*-win-*.exe . 2>/dev/null || true
+          mv QwenPaw-Desktop-macOS-*/QwenPaw-*-mac-*.zip . 2>/dev/null || true
+          mv QwenPaw-Desktop-Linux-arm64-*/QwenPaw-*-linux-*.deb . 2>/dev/null || true
+          files=(QwenPaw-*-win-*.exe QwenPaw-*-mac-*.zip QwenPaw-*-linux-*.deb)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::No desktop installers found to attach to the release"
             exit 1
@@ -82,7 +86,7 @@ jobs:
             "${{ inputs.tag }}" \
             "${files[@]}"
 
-  # ── Publish files + updater metadata to OSS (skipped on dry_run) ───────────
+  # ── Publish files + metadata to OSS (skipped on dry_run) ───────────────────
   upload-oss:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
@@ -119,10 +123,7 @@ jobs:
       - name: Download and verify desktop artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
-            --attempts 2 \
-            --include-updater-metadata
+        run: bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" --attempts 2
 
       - name: Install ossutil
         run: |
@@ -139,12 +140,12 @@ jobs:
             -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
             -L CH
 
-      - name: Process and upload Tauri artifacts (versioned only)
-        # Only versioned files are uploaded here. The `latest` files, updater
-        # manifest and index are promoted AFTER the release is published — see
-        # desktop-promote.yml — so the auto-updater is never pointed at a version
+      - name: Process and upload Electron artifacts (versioned only)
+        # Only versioned files are uploaded here. The `latest` files and index
+        # are promoted AFTER the release is published — see desktop-promote.yml —
+        # so existing users downloading `latest` are never pointed at a version
         # whose release/PyPI/Docker publish might still fail.
-        if: hashFiles('QwenPaw-Desktop-Tauri-*/*') != ''
+        if: hashFiles('QwenPaw-Desktop-*/*') != ''
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
@@ -158,11 +159,11 @@ jobs:
             local artifact
             artifact=$(find ${dirs} -name "${pattern}" 2>/dev/null | head -1 || true)
             if [ -z "${artifact}" ]; then
-              echo "No ${platform} Tauri artifact found, skipping"
+              echo "No ${platform} artifact found, skipping"
               return 0
             fi
 
-            echo "Processing ${platform} Tauri artifact: ${artifact}"
+            echo "Processing ${platform} artifact: ${artifact}"
             python "$RELEASE_INFRA/scripts/pack/generate_oss_metadata.py" \
               --file "${artifact}" \
               --product desktop \
@@ -179,35 +180,22 @@ jobs:
           }
 
           upload_versioned \
-            "QwenPaw-Desktop-Tauri-Windows-*" \
-            "QwenPaw-Tauri-*-Windows-setup.exe" \
-            "win-tauri" \
-            "QwenPaw-Tauri-${VERSION}-Windows-setup.exe" \
-            "win-tauri-metadata.json"
+            "QwenPaw-Desktop-Windows-*" \
+            "QwenPaw-*-win-*.exe" \
+            "win" \
+            "QwenPaw-${VERSION}-win-x64.exe" \
+            "win-metadata.json"
 
           upload_versioned \
-            "QwenPaw-Desktop-Tauri-macOS-*" \
-            "QwenPaw-Tauri-*-macOS.zip" \
-            "mac-tauri" \
-            "QwenPaw-Tauri-${VERSION}-macOS.zip" \
-            "mac-tauri-metadata.json"
+            "QwenPaw-Desktop-macOS-*" \
+            "QwenPaw-*-mac-*.zip" \
+            "mac" \
+            "QwenPaw-${VERSION}-mac-arm64.zip" \
+            "mac-metadata.json"
 
-      - name: Upload Tauri macOS updater archive to OSS
-        # The .zip is for first-install; the auto-updater pulls .app.tar.gz.
-        if: hashFiles('tauri-updater-meta-macos/*.app.tar.gz') != ''
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          APP_TAR_GZ=$(find tauri-updater-meta-macos -name "QwenPaw-Tauri-*-macOS.app.tar.gz" | head -1)
-          if [ -z "$APP_TAR_GZ" ]; then
-            echo "No macOS .app.tar.gz found, skipping"
-            exit 0
-          fi
-          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
-            "$APP_TAR_GZ" \
-            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz"
-
-      # NOTE: the `latest` files, the updater manifest
-      # (qwenpaw-tauri-latest.json) and the index are intentionally NOT uploaded
-      # here. They are promoted only AFTER the release is flipped to published —
-      # see desktop-promote.yml — so existing users' auto-updater is never
-      # pointed at a version whose release might still fail to publish.
+          upload_versioned \
+            "QwenPaw-Desktop-Linux-arm64-*" \
+            "QwenPaw-*-linux-*.deb" \
+            "linux-arm64" \
+            "QwenPaw-${VERSION}-linux-arm64.deb" \
+            "linux-arm64-metadata.json"

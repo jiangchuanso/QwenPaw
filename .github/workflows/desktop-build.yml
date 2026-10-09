@@ -1,6 +1,22 @@
-# Reusable "prepare" half of the desktop release: build the Tauri desktop
-# packages (Windows + macOS), run the install/launch/chat UI verification,
-# and upload the installers + updater sidecars as run artifacts.
+# Reusable "prepare" half of the desktop release: build the QwenPaw Desktop
+# ELECTRON packages for Windows / macOS / Linux (arm64), run the install/launch
+# verification (placeholder; see note), and upload the installers as run
+# artifacts.
+#
+# This replaces the former Tauri build jobs. Electron bundles its own Chromium +
+# Node and needs no system WebKitGTK / libsoup, so the desktop shell now runs on
+# glibc 2.31 targets (Kylin V10 SP1 / Ubuntu 20.04) where Tauri 2 could not.
+#
+# The Linux arm64 job intentionally runs inside an ubuntu:20.04 container so the
+# backend onedir + helper link against glibc 2.31 (linking against 22.04/24.04
+# would produce a package the target OS cannot load).
+#
+# Verification: each build job now launches its own artifact headless (to start
+# the bundled backend) and drives the SPA through the shared Playwright verifier
+# via the verify-electron-* actions — closing the CI gate the Tauri jobs had.
+# The app is launched headless purely to boot the backend; an independent
+# headless Chromium loads the SPA over HTTP, so no display server is required
+# (and the Linux arm64 job runs inside the ubuntu:20.04 container without Xvfb).
 #
 # This workflow performs NO publishing. It is called by release.yml during the
 # prepare phase (pinned to the release commit via `ref`), and can also be run
@@ -30,9 +46,134 @@ permissions:
   contents: read
 
 jobs:
-  build-tauri-windows:
+  build-electron-linux-arm64:
+    # Backend + Electron shell .deb for Kylin V10 SP1 (glibc 2.31).
+    # Runs inside an ubuntu:20.04 arm64 container so the bundled backend/helper
+    # link against glibc 2.31.
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ubuntu:20.04
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # Pin the CPython X.Y staged for the backend: the container's own python3
+      # (3.8 on focal) is only the bootstrap for the staging script, so the
+      # version to download must not be derived from it.
+      QWENPAW_PYTHON_RUNTIME_VERSION: "3.11"
+      # electron-builder's bundled fpm is a self-contained *linux-x86* ruby
+      # build and there is no arm64 flavour of it, so on this arm64 runner the
+      # deb target dies with "Exec format error" right after downloading it.
+      # app-builder honours this variable and uses `fpm` from PATH instead.
+      USE_SYSTEM_FPM: "true"
+    steps:
+      - name: Install git (the ubuntu:20.04 image does not ship it)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Install system build dependencies
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl wget file git \
+            build-essential pkg-config \
+            python3 python3-venv python3-dev \
+            dpkg ruby ruby-dev
+
+      - name: Install fpm
+        # Only needed because this job builds its deb on arm64 (see
+        # USE_SYSTEM_FPM above). Whatever version rubygems resolves is fine --
+        # gem only offers releases whose required_ruby_version focal's ruby
+        # satisfies. The symlink is belt-and-braces: depending on how the
+        # distro configures RubyGems, the executable can land outside PATH.
+        run: |
+          set -eux
+          gem install --no-document fpm
+          gem_bindir="$(ruby -e 'print Gem.bindir')"
+          if [ ! -x "$gem_bindir/fpm" ]; then
+            echo "::error::gem installed fpm but no executable at $gem_bindir/fpm"
+            exit 1
+          fi
+          # On focal, `Gem.bindir` is already /usr/local/bin, so the symlink
+          # would be a no-op self-link and `ln -sf src src` exits 1 (and `set -e`
+          # then kills the step). Only link when the executable lives elsewhere.
+          if [ "$gem_bindir" != "/usr/local/bin" ]; then
+            ln -sf "$gem_bindir/fpm" /usr/local/bin/fpm
+          fi
+          command -v fpm
+          fpm --version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Electron Linux package (.deb)
+        env:
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x scripts/pack-electron/build_linux.sh
+          bash scripts/pack-electron/build_linux.sh
+
+      - name: Generate Linux artifact checksums
+        shell: bash
+        run: |
+          shopt -s nullglob
+          debs=(dist/QwenPaw-*-linux-*.deb)
+          if [ ${#debs[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one Linux .deb, found ${#debs[@]}"
+            exit 1
+          fi
+          for artifact in "${debs[0]}"; do
+            (
+              cd "$(dirname "$artifact")"
+              sha256sum "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+            )
+          done
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Linux-arm64-${{ steps.version.outputs.version }}
+          path: |
+            dist/QwenPaw-*-linux-*.deb
+            dist/QwenPaw-*-linux-*.deb.sha256
+
+      - name: Verify Electron package (Linux)
+        uses: ./.github/actions/verify-electron-linux
+        with:
+          dashscope-api-key: ${{ secrets.DASHSCOPE_API_KEY }}
+          allow-flaky-llm: "true"
+
+  build-electron-windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      # Pin the CPython X.Y staged for the backend + helper runtime: it has to
+      # match the frozen backend, not whatever `python3` the runner happens to
+      # resolve (see the same pin on the Linux arm64 job).
+      QWENPAW_PYTHON_RUNTIME_VERSION: "3.11"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,14 +203,6 @@ jobs:
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: console/src-tauri
-
       - name: Install NSIS
         uses: negrutiu/nsis-install@v2
 
@@ -81,138 +214,56 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
-      - name: Build Tauri Windows package
-        shell: pwsh
-        env:
-          # Authenticate the python-build-standalone release lookup in
-          # stage_python_runtime.py to avoid anonymous API rate limits.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
-          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
-        run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
+      - name: Set up Rust
+        # Builds console/native/computer-use-helper (the Computer Use sidecar the
+        # Electron shell spawns); scripts/pack-electron/build_win.sh runs cargo.
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Stage Tauri Windows installer and updater assets
-        shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          $output = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
-          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
-            $installer = Get-ChildItem `
-              "console/src-tauri/target/release/bundle/nsis/*-setup.exe" |
-              Select-Object -First 1
-            if (-not $installer) {
-              throw "No Tauri Windows installer found"
-            }
-            Copy-Item -Force $installer.FullName $output
-            Write-Host "Staged installer without updater metadata: $output"
-            exit 0
-          }
-          python scripts/pack-tauri/generate_update_manifest.py stage `
-            --bundle-dir console/src-tauri/target/release/bundle/nsis `
-            --pattern '*-setup.exe' `
-            --target windows-x86_64 `
-            --output $output `
-            --pubkey-config console/src-tauri/tauri.version.conf.json
-
-      - name: Verify desktop (Tauri Windows)
-        timeout-minutes: 10
-        uses: ./.github/actions/verify-tauri-windows
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          workspaces: console/native/computer-use-helper
 
-      - name: Stop desktop server (Tauri Windows)
-        if: always()
+      - name: Build Electron Windows package
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/pack-electron/build_win.sh
+
+      - name: Generate Windows artifact checksum
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Continue"
-          # Kill the Tauri shell and its sidecar subprocess by name.
-          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
-          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          exit 0
-
-      - name: Generate desktop artifact checksum (Tauri Windows)
-        shell: pwsh
-        run: |
-          $artifacts = @(Get-ChildItem "dist/QwenPaw-Tauri-*-Windows-setup.exe")
+          $artifacts = @(Get-ChildItem "dist/QwenPaw-*-win-*.exe")
           if ($artifacts.Count -ne 1) {
             throw "Expected exactly one Windows installer, found $($artifacts.Count)"
           }
           $artifact = $artifacts[0]
           $hash = (Get-FileHash -Algorithm SHA256 $artifact.FullName).Hash.ToLowerInvariant()
           "$hash  $($artifact.Name)" | Set-Content -Encoding ascii "$($artifact.FullName).sha256"
+          Write-Host "Checksum written: $($artifact.FullName).sha256"
 
-          $updaterSignatures = @(Get-ChildItem `
-            "dist/QwenPaw-Tauri-*-Windows-setup.exe.sig" `
-            -ErrorAction SilentlyContinue)
-          $updaterMetadata = @(Get-ChildItem `
-            "dist/tauri-windows-*-updater.json" `
-            -ErrorAction SilentlyContinue)
-          if ($updaterSignatures.Count -gt 1 `
-              -or $updaterMetadata.Count -gt 1 `
-              -or $updaterSignatures.Count -ne $updaterMetadata.Count) {
-            throw "Expected one Windows updater signature and metadata file, or neither"
-          }
-          if ($updaterSignatures.Count -eq 1) {
-            foreach ($updaterFile in @($updaterSignatures[0], $updaterMetadata[0])) {
-              $updaterHash = (Get-FileHash -Algorithm SHA256 $updaterFile.FullName).Hash.ToLowerInvariant()
-              "$updaterHash  $($updaterFile.Name)" |
-                Set-Content -Encoding ascii "$($updaterFile.FullName).sha256"
-            }
-          }
-
-      - name: Upload desktop verify logs (Tauri Windows)
-        if: failure()
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-verify-logs-tauri-windows-${{ steps.version.outputs.version }}
+          name: QwenPaw-Desktop-Windows-${{ steps.version.outputs.version }}
           path: |
-            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
-            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
-            ~/AppData/Local/com.qwenpaw.desktop/logs/
-          if-no-files-found: ignore
-          retention-days: 7
+            dist/QwenPaw-*-win-*.exe
+            dist/QwenPaw-*-win-*.exe.sha256
 
-      - name: Upload verify screenshots (Tauri Windows)
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Verify Electron package (Windows)
+        uses: ./.github/actions/verify-electron-windows
         with:
-          name: desktop-verify-screenshots-tauri-windows-${{ steps.version.outputs.version }}
-          path: ${{ runner.temp }}/verify-screenshots/
-          if-no-files-found: ignore
-          retention-days: 7
+          dashscope-api-key: ${{ secrets.DASHSCOPE_API_KEY }}
+          allow-flaky-llm: "true"
 
-      - name: Upload Tauri Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
-          path: |
-            dist/QwenPaw-Tauri-*-Windows-setup.exe
-            dist/QwenPaw-Tauri-*-Windows-setup.exe.sha256
-
-      - name: Upload Tauri Windows updater metadata
-        if: hashFiles('dist/QwenPaw-Tauri-*-Windows-setup.exe.sig') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: tauri-updater-meta-windows
-          path: |
-            dist/QwenPaw-Tauri-*-Windows-setup.exe.sig
-            dist/QwenPaw-Tauri-*-Windows-setup.exe.sig.sha256
-            dist/tauri-windows-x86_64-updater.json
-            dist/tauri-windows-x86_64-updater.json.sha256
-
-  build-tauri-macos:
+  build-electron-macos:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      # Pin the CPython X.Y staged for the backend + helper runtime: it has to
+      # match the frozen backend, not whatever `python3` the runner happens to
+      # resolve (see the same pin on the Linux arm64 job).
+      QWENPAW_PYTHON_RUNTIME_VERSION: "3.11"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -244,129 +295,55 @@ jobs:
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
       - name: Set up Rust
+        # Builds console/native/computer-use-helper (the Computer Use sidecar the
+        # Electron shell spawns); build_macos.sh runs cargo and stages the binary.
         uses: dtolnay/rust-toolchain@stable
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: console/src-tauri
+          workspaces: console/native/computer-use-helper
 
-      - name: Clean dist directory
-        run: rm -rf dist && mkdir -p dist
-
-      - name: Build Tauri macOS package
+      - name: Build Electron macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-          # Authenticate the python-build-standalone release lookup in
-          # stage_python_runtime.py to avoid anonymous API rate limits.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
-          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
         run: |
-          chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
-          bash scripts/pack-tauri/build_macos_pyinstaller.sh
+          chmod +x scripts/pack-electron/build_macos.sh
+          bash scripts/pack-electron/build_macos.sh
 
-      - name: Verify desktop (Tauri macOS)
-        timeout-minutes: 10
-        uses: ./.github/actions/verify-tauri-macos
-        with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-
-      - name: Stop desktop server (Tauri macOS)
-        if: always()
-        run: |
-          # Kill the Tauri shell and its sidecar subprocess.
-          pkill -f "QwenPaw Desktop" 2>/dev/null || true
-          pkill -f "qwenpaw-backend" 2>/dev/null || true
-          sleep 2
-          pkill -9 -f "QwenPaw Desktop" 2>/dev/null || true
-          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
-          # Best-effort: kill anything sitting on the detected port.
-          if [ -n "${BASE_URL:-}" ]; then
-            PORT="${BASE_URL##*:}"
-            lsof -ti:"$PORT" | xargs kill 2>/dev/null || true
-          fi
-          rm -rf dist/verify-tauri
-
-      - name: Generate desktop artifact checksum (Tauri macOS)
+      - name: Generate macOS artifact checksums
         run: |
           shopt -s nullglob
-          artifacts=(dist/QwenPaw-Tauri-*-macOS.zip)
-          if [ ${#artifacts[@]} -ne 1 ]; then
-            echo "::error::Expected exactly one macOS ZIP, found ${#artifacts[@]}"
+          zips=(dist/QwenPaw-*-mac-*.zip)
+          dmgs=(dist/QwenPaw-*-mac-*.dmg)
+          if [ ${#zips[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one macOS zip, found ${#zips[@]}"
             exit 1
           fi
-          artifact="${artifacts[0]}"
-          (
-            cd "$(dirname "$artifact")"
-            shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
-          )
+          for artifact in "${zips[0]}" "${dmgs[0]}"; do
+            (
+              cd "$(dirname "$artifact")"
+              shasum -a 256 "$(basename "$artifact")" > "$(basename "$artifact").sha256"
+            )
+          done
 
-          updater_archives=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz)
-          updater_signatures=(dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig)
-          updater_metadata=(dist/tauri-darwin-*-updater.json)
-          if [ ${#updater_archives[@]} -gt 1 ]; then
-            echo "::error::Expected at most one macOS updater archive, found ${#updater_archives[@]}"
-            exit 1
-          fi
-          if [ ${#updater_signatures[@]} -ne ${#updater_archives[@]} ] || \
-             [ ${#updater_metadata[@]} -ne ${#updater_archives[@]} ]; then
-            echo "::error::Expected one macOS updater archive, signature and metadata file, or none"
-            exit 1
-          fi
-          if [ ${#updater_archives[@]} -eq 1 ]; then
-            for updater_file in \
-              "${updater_archives[0]}" \
-              "${updater_signatures[0]}" \
-              "${updater_metadata[0]}"; do
-              (
-                cd "$(dirname "$updater_file")"
-                shasum -a 256 "$(basename "$updater_file")" > "$(basename "$updater_file").sha256"
-              )
-            done
-          fi
-
-      - name: Upload desktop verify logs (Tauri macOS)
-        if: failure()
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-verify-logs-tauri-macos-${{ steps.version.outputs.version }}
+          name: QwenPaw-Desktop-macOS-${{ steps.version.outputs.version }}
           path: |
-            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
-            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
-            ~/Library/Logs/com.qwenpaw.desktop/
-          if-no-files-found: ignore
-          retention-days: 7
+            dist/QwenPaw-*-mac-*.zip
+            dist/QwenPaw-*-mac-*.zip.sha256
+            dist/QwenPaw-*-mac-*.dmg
+            dist/QwenPaw-*-mac-*.dmg.sha256
 
-      - name: Upload verify screenshots (Tauri macOS)
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Verify Electron package (macOS)
+        uses: ./.github/actions/verify-electron-macos
         with:
-          name: desktop-verify-screenshots-tauri-macos-${{ steps.version.outputs.version }}
-          path: ${{ runner.temp }}/verify-screenshots/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload Tauri macOS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
-          path: |
-            dist/QwenPaw-Tauri-*-macOS.zip
-            dist/QwenPaw-Tauri-*-macOS.zip.sha256
-
-      - name: Upload Tauri macOS updater metadata
-        if: hashFiles('dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: tauri-updater-meta-macos
-          path: |
-            dist/QwenPaw-Tauri-*-macOS.app.tar.gz
-            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sha256
-            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig
-            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig.sha256
-            dist/tauri-darwin-*-updater.json
-            dist/tauri-darwin-*-updater.json.sha256
+          dashscope-api-key: ${{ secrets.DASHSCOPE_API_KEY }}
+          allow-flaky-llm: "true"

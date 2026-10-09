@@ -1,13 +1,15 @@
 # Reusable "promote" step of the desktop release — runs ONLY after the release
 # has been flipped to published (called by release.yml's post-finalize job).
 #
-# It promotes the already-uploaded versioned OSS files to `latest`, generates
-# and uploads the Tauri auto-update manifest (qwenpaw-tauri-latest.json), and
-# refreshes the desktop + main index. Splitting this out of desktop-publish.yml
-# ensures existing users' auto-updater is never pointed at a version whose
+# It promotes the already-uploaded versioned OSS files to `latest` and refreshes
+# the desktop + main index. Splitting this out of desktop-publish.yml ensures
+# existing users downloading `latest` are never pointed at a version whose
 # release/PyPI/Docker publish might still have failed.
 #
-# Skipped entirely when dry_run=true (fork verification never touches prod OSS).
+# Electron-only: the former Tauri auto-updater manifest (qwenpaw-tauri-latest.json)
+# is intentionally NOT generated — auto-update is out of scope for the Electron
+# migration. Skipped entirely when dry_run=true (fork verification never touches
+# prod OSS).
 
 name: Desktop Promote (reusable)
 
@@ -72,10 +74,7 @@ jobs:
       - name: Download and verify desktop artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
-            --attempts 2 \
-            --include-updater-metadata
+        run: bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" --attempts 2
 
       - name: Install ossutil
         run: |
@@ -93,7 +92,7 @@ jobs:
             -L CH
 
       - name: Promote versioned files to latest
-        if: hashFiles('QwenPaw-Desktop-Tauri-*/*') != ''
+        if: hashFiles('QwenPaw-Desktop-*/*') != ''
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
@@ -121,60 +120,25 @@ jobs:
           }
 
           promote_latest \
-            "QwenPaw-Desktop-Tauri-Windows-*" \
-            "QwenPaw-Tauri-*-Windows-setup.exe" \
-            "win-tauri" \
-            "QwenPaw-Tauri-${VERSION}-Windows-setup.exe" \
-            "QwenPaw-Tauri-latest-Windows-setup.exe"
+            "QwenPaw-Desktop-Windows-*" \
+            "QwenPaw-*-win-*.exe" \
+            "win" \
+            "QwenPaw-${VERSION}-win-x64.exe" \
+            "QwenPaw-latest-win-x64.exe"
 
           promote_latest \
-            "QwenPaw-Desktop-Tauri-macOS-*" \
-            "QwenPaw-Tauri-*-macOS.zip" \
-            "mac-tauri" \
-            "QwenPaw-Tauri-${VERSION}-macOS.zip" \
-            "QwenPaw-Tauri-latest-macOS.zip"
+            "QwenPaw-Desktop-macOS-*" \
+            "QwenPaw-*-mac-*.zip" \
+            "mac" \
+            "QwenPaw-${VERSION}-mac-arm64.zip" \
+            "QwenPaw-latest-mac-arm64.zip"
 
-      - name: Link artifacts into updater-meta dirs for manifest generation
-        if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
-        run: |
-          # The manifest generator expects the artifact binary alongside the
-          # sidecar JSON.  After artifact splitting the exe lives in a separate
-          # artifact directory, so we symlink it into the meta directory.
-          for f in QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe; do
-            [ -f "$f" ] && ln -sf "../$f" tauri-updater-meta-windows/ 2>/dev/null || true
-          done
-
-      - name: Generate and upload OSS updater manifest
-        # The Tauri auto-updater uses OSS only; GitHub Releases only carry
-        # first-install artifacts.
-        if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          RELEASE_BODY="$(gh release view "${{ inputs.tag }}" --json body -q .body --repo "$GITHUB_REPOSITORY" 2>/dev/null || true)"
-          OSS_BASE="${OSS_PUBLIC_BASE_URL%/}"
-          metadata_args=()
-          for f in tauri-updater-meta-windows/tauri-windows-*-updater.json \
-                   tauri-updater-meta-macos/tauri-darwin-*-updater.json; do
-            [ -f "$f" ] && metadata_args+=(--metadata "$f")
-          done
-          if [ ${#metadata_args[@]} -eq 0 ]; then
-            echo "No Tauri updater sidecars found, skipping OSS manifest"
-            exit 0
-          fi
-          NOTES="${RELEASE_BODY:-QwenPaw Desktop ${VERSION}}"
-          python "$RELEASE_INFRA/scripts/pack-tauri/generate_update_manifest.py" manifest \
-            --version "$VERSION" \
-            --base-url "$OSS_BASE" \
-            --target-base "windows-x86_64=${OSS_BASE}/win-tauri" \
-            --target-base "darwin-aarch64=${OSS_BASE}/mac-tauri" \
-            "${metadata_args[@]}" \
-            --notes "$NOTES" \
-            --output qwenpaw-tauri-latest-oss.json
-          bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \
-            qwenpaw-tauri-latest-oss.json \
-            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json"
+          promote_latest \
+            "QwenPaw-Desktop-Linux-arm64-*" \
+            "QwenPaw-*-linux-*.deb" \
+            "linux-arm64" \
+            "QwenPaw-${VERSION}-linux-arm64.deb" \
+            "QwenPaw-latest-linux-arm64.deb"
 
       - name: Update desktop index
         run: |
@@ -191,7 +155,7 @@ jobs:
           }
           EOF
 
-          merge_tauri_metadata() {
+          merge_metadata() {
             local metadata="$1"
             local dirs="$2"
             local pattern="$3"
@@ -211,16 +175,21 @@ jobs:
               --output-index desktop-index.json
           }
 
-          merge_tauri_metadata \
-            "win-tauri-metadata.json" \
-            "QwenPaw-Desktop-Tauri-Windows-*" \
-            "QwenPaw-Tauri-*-Windows-setup.exe" \
-            "win-tauri"
-          merge_tauri_metadata \
-            "mac-tauri-metadata.json" \
-            "QwenPaw-Desktop-Tauri-macOS-*" \
-            "QwenPaw-Tauri-*-macOS.zip" \
-            "mac-tauri"
+          merge_metadata \
+            "win-metadata.json" \
+            "QwenPaw-Desktop-Windows-*" \
+            "QwenPaw-*-win-*.exe" \
+            "win"
+          merge_metadata \
+            "mac-metadata.json" \
+            "QwenPaw-Desktop-macOS-*" \
+            "QwenPaw-*-mac-*.zip" \
+            "mac"
+          merge_metadata \
+            "linux-arm64-metadata.json" \
+            "QwenPaw-Desktop-Linux-arm64-*" \
+            "QwenPaw-*-linux-*.deb" \
+            "linux-arm64"
 
           # Upload updated desktop/index.json
           bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \

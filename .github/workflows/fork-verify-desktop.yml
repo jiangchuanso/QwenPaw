@@ -1,11 +1,14 @@
 # One-click desktop release verification for fork repositories.
-# Builds the Tauri desktop packages (macOS + Windows) and runs the
-# end-to-end UI verification (Playwright + headless browser) against
-# the freshly built product.
+# Builds the QwenPaw Desktop ELECTRON packages (macOS + Windows) end to end.
 #
 # Unlike desktop-release.yml this workflow does NOT upload artifacts to
-# a GitHub Release or OSS — it only verifies that the build + LLM chain
-# works. Use it to validate packaging changes before opening a PR.
+# a GitHub Release or OSS — it only verifies that the packaging works.
+# Use it to validate packaging changes before opening a PR.
+#
+# Verification: each platform job launches its own artifact headless (to start
+# the bundled backend) and drives the SPA through the shared Playwright verifier
+# via the verify-electron-* actions, so this workflow validates the running app
+# end to end — not just that the installer was produced.
 #
 # Usage: Actions → Fork Desktop Release Verification → Run workflow.
 
@@ -21,7 +24,6 @@ on:
         default: 'all'
         options:
           - 'all'
-          - 'tauri-only'
           - 'macos-only'
           - 'windows-only'
 
@@ -33,13 +35,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tauri-macos:
+  electron-macos:
     if: >-
       inputs.platforms == 'all' ||
-      inputs.platforms == 'tauri-only' ||
       inputs.platforms == 'macos-only'
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      # Pin the CPython X.Y staged for the backend + helper runtime: it has to
+      # match the frozen backend, not whatever `python3` the runner happens to
+      # resolve (see the same pin on the Linux arm64 job).
+      QWENPAW_PYTHON_RUNTIME_VERSION: "3.11"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,6 +58,8 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v5
+        env:
+          PIP_NO_CACHE_DIR: "1"
         with:
           python-version: "3.11"
 
@@ -69,46 +77,52 @@ jobs:
           cache-dependency-path: console/package-lock.json
 
       - name: Set up Rust
+        # Builds console/native/computer-use-helper (the Computer Use sidecar the
+        # Electron shell spawns); build_macos.sh runs cargo and stages the binary.
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build Tauri macOS package
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: console/native/computer-use-helper
+
+      - name: Build Electron macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
           # Authenticate the python-build-standalone release lookup in
           # stage_python_runtime.py to avoid anonymous API rate limits.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional. Forks only need a matching minisign key pair when
-          # validating updater artifacts; regular app packages do not need it.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         run: |
-          chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
-          bash scripts/pack-tauri/build_macos_pyinstaller.sh
+          chmod +x scripts/pack-electron/build_macos.sh
+          bash scripts/pack-electron/build_macos.sh
 
-      - name: Verify desktop (Tauri macOS)
-        timeout-minutes: 10
-        uses: ./.github/actions/verify-tauri-macos
+      - name: Verify macOS artifact present
+        run: |
+          shopt -s nullglob
+          zips=(dist/QwenPaw-*-mac-*.zip)
+          if [ ${#zips[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one macOS zip, found ${#zips[@]}"
+            exit 1
+          fi
+          echo "Built: ${zips[0]} ($(du -h "${zips[0]}" | cut -f1))"
+
+      - name: Verify Electron package (macOS)
+        uses: ./.github/actions/verify-electron-macos
         with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          dashscope-api-key: ${{ secrets.DASHSCOPE_API_KEY }}
           allow-flaky-llm: "true"
 
-      - name: Stop desktop server
-        if: always()
-        run: |
-          pkill -f "QwenPaw Desktop" 2>/dev/null || true
-          pkill -f "qwenpaw-backend" 2>/dev/null || true
-          sleep 2
-          pkill -9 -f "QwenPaw Desktop" 2>/dev/null || true
-          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
-
-  tauri-windows:
+  electron-windows:
     if: >-
       inputs.platforms == 'all' ||
-      inputs.platforms == 'tauri-only' ||
       inputs.platforms == 'windows-only'
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      # Pin the CPython X.Y staged for the backend + helper runtime: it has to
+      # match the frozen backend, not whatever `python3` the runner happens to
+      # resolve (see the same pin on the Linux arm64 job).
+      QWENPAW_PYTHON_RUNTIME_VERSION: "3.11"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -137,51 +151,34 @@ jobs:
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install NSIS
         uses: negrutiu/nsis-install@v2
 
-      - name: Build Tauri Windows package
+      - name: Set up Rust
+        # Builds console/native/computer-use-helper (the Computer Use sidecar the
+        # Electron shell spawns); scripts/pack-electron/build_win.sh runs cargo.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: console/native/computer-use-helper
+
+      - name: Build Electron Windows package
         shell: pwsh
         env:
-          # Authenticate the python-build-standalone release lookup in
-          # stage_python_runtime.py to avoid anonymous API rate limits.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
+        run: bash scripts/pack-electron/build_win.sh
 
-      - name: Stage Tauri Windows installer
+      - name: Verify Windows artifact present
         shell: pwsh
         run: |
-          $installer = Get-ChildItem "console/src-tauri/target/release/bundle/nsis/*.exe" |
-            Select-Object -First 1
-          if (-not $installer) { throw "No Tauri Windows installer found" }
-          $target = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Force $installer.FullName $target
-          Write-Host "Staged: $target"
-          Write-Host "Installer size: $($installer.Length) bytes ($([Math]::Round($installer.Length / 1MB, 2)) MiB)"
+          $installer = Get-ChildItem "dist/QwenPaw-*-win-*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "No Electron Windows installer found in dist/" }
+          Write-Host "Built: $($installer.FullName) ($([Math]::Round($installer.Length / 1MB, 2)) MiB)"
 
-      - name: Verify desktop (Tauri Windows)
-        timeout-minutes: 10
-        uses: ./.github/actions/verify-tauri-windows
+      - name: Verify Electron package (Windows)
+        uses: ./.github/actions/verify-electron-windows
         with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          dashscope-api-key: ${{ secrets.DASHSCOPE_API_KEY }}
           allow-flaky-llm: "true"
-
-      - name: Stop desktop server
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Continue"
-          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
-          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          exit 0
