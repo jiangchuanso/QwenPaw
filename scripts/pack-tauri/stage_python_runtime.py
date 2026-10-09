@@ -35,6 +35,7 @@ RELEASES_API_BASE = (
 )
 DEFAULT_RELEASE = "20260623"
 RELEASE_ENV = "QWENPAW_PYTHON_BUILD_STANDALONE_RELEASE"
+RUNTIME_VERSION_ENV = "QWENPAW_PYTHON_RUNTIME_VERSION"
 HTTP_ATTEMPTS = 4
 HTTP_TIMEOUT_SECONDS = 120
 RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
@@ -117,6 +118,21 @@ def _preferred_release() -> str:
     return release or "latest"
 
 
+def _default_python_version() -> str:
+    """X.Y to stage when ``--python-version`` is not given.
+
+    The interpreter running this script is only a bootstrap, and it is not
+    always the version the backend is built with -- the ubuntu:20.04 arm64
+    container ships python3.8, which python-build-standalone never published
+    an ``install_only`` build for on aarch64. A pinned X.Y from the
+    environment therefore wins over the interpreter's own version.
+    """
+    pinned = os.environ.get(RUNTIME_VERSION_ENV, "").strip()
+    if pinned:
+        return pinned
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
 def _asset_url_from_release(
     data: dict[str, object],
     xy: str,
@@ -182,8 +198,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--python-version",
-        default=f"{sys.version_info.major}.{sys.version_info.minor}",
-        help="CPython X.Y to stage (default: this interpreter's version)",
+        default=_default_python_version(),
+        help=(
+            "CPython X.Y to stage (default: "
+            f"${RUNTIME_VERSION_ENV}, else this interpreter's version)"
+        ),
     )
     args = parser.parse_args()
 

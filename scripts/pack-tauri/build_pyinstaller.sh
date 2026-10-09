@@ -21,6 +21,13 @@ RUNTIME_PYTHON_DIR="${PYTHON_RUNTIME_DIR}/python"
 NATIVE_HOST_PYTHON="${RUNTIME_PYTHON_DIR}/bin/python3"
 BUILD_VENV="${DIST}/pyinstaller-venv"
 PYTHON_BIN="${BUILD_VENV}/bin/python"
+
+# Set to 1 (QWENPAW_SKIP_TAURI_STAGING=1) to build only the PyInstaller onedir
+# bundle and skip the Tauri-only staging: copying into
+# console/src-tauri/binaries, installing the Chrome native-messaging host
+# dependencies, and staging the bundled Node runtime. Used by the Linux
+# backend-only package (see build_linux_pyinstaller.sh).
+SKIP_TAURI_STAGING="${QWENPAW_SKIP_TAURI_STAGING:-0}"
 VERSION=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)
 
 echo "========================================="
@@ -33,23 +40,40 @@ echo ""
 # Check prerequisites
 echo "== Checking prerequisites =="
 
-if command -v python3 >/dev/null 2>&1; then
-    BOOTSTRAP_PYTHON=$(command -v python3)
-elif command -v python >/dev/null 2>&1; then
-    BOOTSTRAP_PYTHON=$(command -v python)
-else
-    echo "ERROR: Python not found on PATH; it is required to stage the bundled runtime"
+# The PATH Python is only used to run the staging script, so it has to be able
+# to *start* in this environment. Container builds (the ubuntu:20.04 arm64 job)
+# put the runner's tool cache first on PATH, and that interpreter is built
+# against a newer glibc than the container ships, so it dies with
+# "version `GLIBC_2.xx' not found" before argparse even runs. Probe the
+# candidates and keep the first one that actually executes.
+BOOTSTRAP_PYTHON=""
+for candidate in python3 python /usr/bin/python3 /usr/local/bin/python3; do
+    resolved="$(command -v "$candidate" 2>/dev/null || true)"
+    if [ -n "$resolved" ] && "$resolved" -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+        BOOTSTRAP_PYTHON="$resolved"
+        break
+    fi
+done
+if [ -z "$BOOTSTRAP_PYTHON" ]; then
+    echo "ERROR: No runnable Python found on PATH; it is required to stage the bundled runtime"
     exit 1
 fi
+echo "Bootstrap Python: ${BOOTSTRAP_PYTHON} ($("${BOOTSTRAP_PYTHON}" --version 2>&1))"
 
 mkdir -p "${BINARIES_DIR}"
 
 # The staged python-build-standalone runtime is the canonical source for both
-# the helper interpreter and the PyInstaller build environment. The PATH
-# Python only selects the X.Y version to download and runs the staging script.
+# the helper interpreter and the PyInstaller build environment. The bootstrap
+# Python only runs the staging script; QWENPAW_PYTHON_RUNTIME_VERSION pins the
+# X.Y to download, which matters when the bootstrap interpreter is older than
+# the version the backend is built with (python3.8 inside ubuntu:20.04).
 echo "== Staging canonical Python runtime =="
-"$BOOTSTRAP_PYTHON" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
-    --dest "${PYTHON_RUNTIME_DIR}"
+STAGE_ARGS=(--dest "${PYTHON_RUNTIME_DIR}")
+if [ -n "${QWENPAW_PYTHON_RUNTIME_VERSION:-}" ]; then
+    STAGE_ARGS+=(--python-version "${QWENPAW_PYTHON_RUNTIME_VERSION}")
+fi
+"${BOOTSTRAP_PYTHON}" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
+    "${STAGE_ARGS[@]}"
 if [ ! -f "$NATIVE_HOST_PYTHON" ]; then
     echo "ERROR: Bundled Python interpreter not found at ${NATIVE_HOST_PYTHON}"
     exit 1
@@ -96,8 +120,14 @@ echo "== Installing project dependencies =="
 # half-removed pkg_resources (module present, declare_namespace gone), which
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
-install_python_packages -e ".[full]" "setuptools<82"
-echo "Project dependencies installed with full extras"
+# Local-inference extras are intentionally omitted: QwenPaw talks to a remote
+# llama-server and the default transcription provider is "disabled", so shipping
+# the openai-whisper extra (which drags in torch/numba and dominates the
+# installer size) buys nothing. Keep this list in sync with the excludes in
+# scripts/pack-tauri/qwenpaw.spec.
+QWENPAW_EXTRAS="${QWENPAW_EXTRAS:-qwenpaw-data,hub,local,codex,qoder}"
+install_python_packages -e ".[${QWENPAW_EXTRAS}]" "setuptools<82"
+echo "Project dependencies installed with extras: ${QWENPAW_EXTRAS}"
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package
@@ -153,40 +183,49 @@ SIZE=$(du -sh "${BACKEND_DIR}" | cut -f1)
 echo "Bundle size: ${SIZE}"
 echo ""
 
-# Copy to Tauri resources directory
-echo "== Copying to Tauri binaries directory =="
-DEST="${BINARIES_DIR}/qwenpaw-backend"
-rm -rf "${DEST}"
-mkdir -p "${DEST}"
-cp -R "${BACKEND_DIR}/." "${DEST}/"
-chmod +x "${DEST}/qwenpaw-backend"
-chmod +x "${DEST}/qwenpaw"
-echo "Copied to: ${DEST}"
-echo ""
+if [ "${SKIP_TAURI_STAGING}" = "1" ]; then
+    echo "== Skipping Tauri-only staging (QWENPAW_SKIP_TAURI_STAGING=1) =="
+    echo "   backend-only build: no console/src-tauri resources, no Chrome"
+    echo "   native-messaging host deps, no bundled Node runtime"
+    echo ""
+else
+    # Copy to Tauri resources directory
+    echo "== Copying to Tauri binaries directory =="
+    DEST="${BINARIES_DIR}/qwenpaw-backend"
+    rm -rf "${DEST}"
+    mkdir -p "${DEST}"
+    cp -R "${BACKEND_DIR}/." "${DEST}/"
+    chmod +x "${DEST}/qwenpaw-backend"
+    chmod +x "${DEST}/qwenpaw"
+    echo "Copied to: ${DEST}"
+    echo ""
 
-# The Chrome Native Messaging host runs under this standalone interpreter,
-# outside the PyInstaller backend, so its dependencies must be installed here.
-echo "== Installing bundled Python helper dependencies =="
-"$NATIVE_HOST_PYTHON" -m pip install \
-    --disable-pip-version-check \
-    --no-input \
-    --no-deps \
-    --only-binary=:all: \
-    -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
-"$NATIVE_HOST_PYTHON" \
-    "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
-    --check-runtime
-echo ""
+    # The Chrome Native Messaging host runs under this standalone interpreter,
+    # outside the PyInstaller backend, so its dependencies must be installed here.
+    echo "== Installing bundled Python helper dependencies =="
+    "$NATIVE_HOST_PYTHON" -m pip install \
+        --disable-pip-version-check \
+        --no-input \
+        --no-deps \
+        --only-binary=:all: \
+        -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
+    "$NATIVE_HOST_PYTHON" \
+        "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
+        --check-runtime
+    echo ""
 
-echo "== Staging bundled Node runtime =="
-"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_node_runtime.py" \
-    --dest "${BINARIES_DIR}/node-runtime"
-echo ""
+    echo "== Staging bundled Node runtime =="
+    "$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_node_runtime.py" \
+        --dest "${BINARIES_DIR}/node-runtime"
+    echo ""
+fi
 
 echo "========================================="
 echo "PyInstaller Build Complete!"
 echo "========================================="
 echo "Output:"
 echo "  Bundle: ${BACKEND_DIR}"
-echo "  Tauri resource: ${DEST}"
+if [ "${SKIP_TAURI_STAGING}" != "1" ]; then
+    echo "  Tauri resource: ${DEST}"
+fi
 echo ""

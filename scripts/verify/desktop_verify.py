@@ -28,6 +28,10 @@ UI flavours:
                                the Tauri webview on macOS).
 - ``--ui-mode tauri-windows``  Playwright + headless Chromium (same engine
                                family as Tauri's WebView2 on Windows).
+- ``--ui-mode electron``       Playwright + headless Chromium driving the
+                               Electron-bundled backend's SPA. No CDP: the app
+                               is launched headless purely to start the backend,
+                               and a standalone Chromium loads the SPA over HTTP.
 
 Designed to be invoked by ``.github/workflows/desktop-release.yml`` after the
 desktop server has been booted on ``--base-url``. The API layer uses only
@@ -710,7 +714,7 @@ class PlaywrightDriver(UIDriver):
                 pass
 
 
-UI_MODES = ("tauri-macos", "tauri-windows")
+UI_MODES = ("tauri-macos", "tauri-windows", "electron")
 
 
 def make_driver(
@@ -729,6 +733,12 @@ def make_driver(
             headless,
             cdp_url,
         )
+    if ui_mode == "electron":
+        # Electron bundles its own Chromium; drive the SPA with a standalone
+        # headless Chromium pointed at the backend (same engine family as the
+        # Electron webview). No CDP needed — the app is launched headless purely
+        # to start the bundled backend.
+        return PlaywrightDriver("chromium", screenshot_dir, headless)
     raise UIDriverInitError(f"unknown ui-mode: {ui_mode!r}")
 
 

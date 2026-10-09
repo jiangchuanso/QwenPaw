@@ -26,6 +26,19 @@ $BUILD_VENV = Join-Path $DIST "pyinstaller-venv"
 $PYTHON_BIN = Join-Path $BUILD_VENV "Scripts\python.exe"
 $VERSION_FILE = "src\qwenpaw\__version__.py"
 
+# Set to 1 (QWENPAW_SKIP_TAURI_STAGING=1) to build only the PyInstaller onedir
+# bundle and skip the Tauri-only staging: copying into
+# console\src-tauri\binaries, installing the Chrome native-messaging host
+# dependencies, staging the bundled Node runtime, and building the Computer Use
+# helper. Mirrors scripts/pack-tauri/build_pyinstaller.sh, and is what the
+# Electron builds (scripts/pack-electron/build_win.sh) need: console\src-tauri
+# no longer exists, so the staging step would fail on the missing Cargo.toml.
+$SKIP_TAURI_STAGING = if ($env:QWENPAW_SKIP_TAURI_STAGING) {
+    $env:QWENPAW_SKIP_TAURI_STAGING
+} else {
+    "0"
+}
+
 # Extract version
 if (Test-Path $VERSION_FILE) {
     $content = Get-Content $VERSION_FILE -Raw
@@ -150,8 +163,13 @@ Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
 # half-removed pkg_resources (module present, declare_namespace gone), which
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
-Install-PythonPackages -Packages @("-e", ".[full]", "setuptools<82")
-Write-Host "Project dependencies installed with full extras" -ForegroundColor Green
+# Local-inference extras are intentionally omitted (see qwenpaw.spec excludes):
+# openai-whisper drags in torch/numba and dominates the installer size, yet the
+# default transcription provider is "disabled" and remote models are served by
+# an external llama-server.
+$QwenPawExtras = if ($env:QWENPAW_EXTRAS) { $env:QWENPAW_EXTRAS } else { "qwenpaw-data,hub,local,codex,qoder" }
+Install-PythonPackages -Packages @("-e", ".[$QwenPawExtras]", "setuptools<82")
+Write-Host "Project dependencies installed with extras: $QwenPawExtras" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
 # PyPI has an empty 'acp' stub that shadows the real package
@@ -213,66 +231,76 @@ $bundleSize = (Get-ChildItem $BACKEND_DIR -Recurse -File | Measure-Object -Prope
 Write-Host "Bundle size: $([math]::Round($bundleSize, 2)) MB"
 Write-Host ""
 
-# Copy to Tauri resources directory
-Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
-$DEST = Join-Path $BINARIES_DIR "qwenpaw-backend"
-New-Item -ItemType Directory -Force -Path $DEST | Out-Null
-Get-ChildItem -LiteralPath $DEST -Force | Remove-Item -Recurse -Force
-Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
-Write-Host "Copied to: $DEST" -ForegroundColor Green
-Write-Host ""
+if ($SKIP_TAURI_STAGING -eq "1") {
+    Write-Host "== Skipping Tauri-only staging (QWENPAW_SKIP_TAURI_STAGING=1) ==" -ForegroundColor Yellow
+    Write-Host "   backend-only build: no console\src-tauri resources, no Chrome"
+    Write-Host "   native-messaging host deps, no bundled Node runtime, no Computer"
+    Write-Host "   Use helper (the Rust crate went away with the Electron move)"
+    Write-Host ""
+} else {
+    # Copy to Tauri resources directory
+    Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
+    $DEST = Join-Path $BINARIES_DIR "qwenpaw-backend"
+    New-Item -ItemType Directory -Force -Path $DEST | Out-Null
+    Get-ChildItem -LiteralPath $DEST -Force | Remove-Item -Recurse -Force
+    Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
+    Write-Host "Copied to: $DEST" -ForegroundColor Green
+    Write-Host ""
 
-# The Chrome Native Messaging host runs under this standalone interpreter,
-# outside the PyInstaller backend, so its dependencies must be installed here.
-Write-Host "== Installing bundled Python helper dependencies ==" -ForegroundColor Yellow
-$NATIVE_HOST_REQUIREMENTS = Join-Path $REPO_ROOT "scripts\pack-tauri\native-host-requirements.txt"
-& $NATIVE_HOST_PYTHON -m pip install `
-    --disable-pip-version-check `
-    --no-input `
-    --no-deps `
-    --only-binary=:all: `
-    -r $NATIVE_HOST_REQUIREMENTS
-Assert-LastExit "Failed to install Chrome Native Messaging host dependencies"
-& $NATIVE_HOST_PYTHON `
-    (Join-Path $REPO_ROOT "plugins\bundle\chrome\assets\scripts\nm_host.py") `
-    --check-runtime
-Assert-LastExit "Bundled Python runtime cannot run the Native Messaging host"
-Write-Host ""
+    # The Chrome Native Messaging host runs under this standalone interpreter,
+    # outside the PyInstaller backend, so its dependencies must be installed here.
+    Write-Host "== Installing bundled Python helper dependencies ==" -ForegroundColor Yellow
+    $NATIVE_HOST_REQUIREMENTS = Join-Path $REPO_ROOT "scripts\pack-tauri\native-host-requirements.txt"
+    & $NATIVE_HOST_PYTHON -m pip install `
+        --disable-pip-version-check `
+        --no-input `
+        --no-deps `
+        --only-binary=:all: `
+        -r $NATIVE_HOST_REQUIREMENTS
+    Assert-LastExit "Failed to install Chrome Native Messaging host dependencies"
+    & $NATIVE_HOST_PYTHON `
+        (Join-Path $REPO_ROOT "plugins\bundle\chrome\assets\scripts\nm_host.py") `
+        --check-runtime
+    Assert-LastExit "Bundled Python runtime cannot run the Native Messaging host"
+    Write-Host ""
 
-Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow
-& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_node_runtime.py") `
-    --dest (Join-Path $BINARIES_DIR "node-runtime")
-Assert-LastExit "Failed to stage bundled Node runtime"
-Write-Host "== Building Computer Use helper ==" -ForegroundColor Yellow
-$CARGO_BIN = (Get-Command cargo -ErrorAction SilentlyContinue).Source
-if (-not $CARGO_BIN) {
-    throw "cargo not found; Rust toolchain is required to build qwenpaw-computer-use-helper"
+    Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow
+    & $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_node_runtime.py") `
+        --dest (Join-Path $BINARIES_DIR "node-runtime")
+    Assert-LastExit "Failed to stage bundled Node runtime"
+    Write-Host "== Building Computer Use helper ==" -ForegroundColor Yellow
+    $CARGO_BIN = (Get-Command cargo -ErrorAction SilentlyContinue).Source
+    if (-not $CARGO_BIN) {
+        throw "cargo not found; Rust toolchain is required to build qwenpaw-computer-use-helper"
+    }
+    $TAURI_DIR = Join-Path $REPO_ROOT "console\src-tauri"
+    Push-Location $TAURI_DIR
+    try {
+        & $CARGO_BIN build --release --bin qwenpaw-computer-use-helper
+        Assert-LastExit "Failed to build qwenpaw-computer-use-helper"
+    } finally {
+        Pop-Location
+    }
+    $TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $TAURI_DIR "target" }
+    if (-not [System.IO.Path]::IsPathRooted($TARGET_DIR)) {
+        $TARGET_DIR = Join-Path $TAURI_DIR $TARGET_DIR
+    }
+    $COMPUTER_USE_HELPER_EXE = Join-Path $TARGET_DIR "release\qwenpaw-computer-use-helper.exe"
+    if (-not (Test-Path $COMPUTER_USE_HELPER_EXE)) {
+        throw "Computer Use helper executable not found at $COMPUTER_USE_HELPER_EXE"
+    }
+    $COMPUTER_USE_HELPER_DEST = Join-Path $DEST "qwenpaw-computer-use-helper.exe"
+    Copy-Item -Force $COMPUTER_USE_HELPER_EXE $COMPUTER_USE_HELPER_DEST
+    Write-Host "Computer Use helper staged: $COMPUTER_USE_HELPER_DEST" -ForegroundColor Green
+    Write-Host ""
 }
-$TAURI_DIR = Join-Path $REPO_ROOT "console\src-tauri"
-Push-Location $TAURI_DIR
-try {
-    & $CARGO_BIN build --release --bin qwenpaw-computer-use-helper
-    Assert-LastExit "Failed to build qwenpaw-computer-use-helper"
-} finally {
-    Pop-Location
-}
-$TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $TAURI_DIR "target" }
-if (-not [System.IO.Path]::IsPathRooted($TARGET_DIR)) {
-    $TARGET_DIR = Join-Path $TAURI_DIR $TARGET_DIR
-}
-$COMPUTER_USE_HELPER_EXE = Join-Path $TARGET_DIR "release\qwenpaw-computer-use-helper.exe"
-if (-not (Test-Path $COMPUTER_USE_HELPER_EXE)) {
-    throw "Computer Use helper executable not found at $COMPUTER_USE_HELPER_EXE"
-}
-$COMPUTER_USE_HELPER_DEST = Join-Path $DEST "qwenpaw-computer-use-helper.exe"
-Copy-Item -Force $COMPUTER_USE_HELPER_EXE $COMPUTER_USE_HELPER_DEST
-Write-Host "Computer Use helper staged: $COMPUTER_USE_HELPER_DEST" -ForegroundColor Green
-Write-Host ""
 
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "PyInstaller Build Complete!" -ForegroundColor Green
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Output:"
 Write-Host "  Bundle: $BACKEND_DIR"
-Write-Host "  Tauri resource: $DEST"
+if ($SKIP_TAURI_STAGING -ne "1") {
+    Write-Host "  Tauri resource: $DEST"
+}
 Write-Host ""
