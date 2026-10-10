@@ -243,7 +243,10 @@ describe("bounded resource rechecks", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(completed).toBe(false);
-    finish(new TextEncoder().encode(content).buffer);
+    // In this project's program `TextEncoder.encode().buffer` is typed
+    // ArrayBufferLike; at runtime it is always a plain (non-shared) ArrayBuffer,
+    // which is what the mocked response hands back.
+    finish(new TextEncoder().encode(content).buffer as ArrayBuffer);
     expect(await check).toMatchObject({
       outcome: "available",
       status: 200,
