@@ -19,6 +19,20 @@ files:
   # not packed into the asar — keep them out of `files` to avoid double-bundling
   # and asar-packing multi-hundred-MB binaries.
   - "!electron/binaries/**/*"
+# console/package.json is an ES module ("type": "module"), but everything in
+# electron/ is CommonJS (`require`, `module.exports`). Electron resolves the
+# main entry through Node's ESM/CJS rules, so with the inherited "type":
+# "module" it imported electron/main.js as an ES module and the app died on
+# startup with:
+#   ReferenceError: require is not defined in ES module scope
+#   This file is being treated as an ES module because ... 'package.json'
+#   contains "type": "module".
+# electron/package.json pins that directory (the nearest package.json wins, so
+# `electron .` in dev is fixed too); this override additionally pins the
+# package.json electron-builder generates inside app.asar, so the packaged
+# bundle is CommonJS no matter how the archive is produced.
+extraMetadata:
+  type: commonjs
 extraResources:
   - from: "electron/binaries"
     to: "binaries"

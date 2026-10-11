@@ -53,13 +53,19 @@ const DESKTOP_CSP = [
   "img-src 'self' http://127.0.0.1:* blob: data: https:;",
 ].join(" ");
 
-session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-  const headers = details.responseHeaders || {};
-  if (/^https?:\/\/127\.0\.0\.1(:\d+)?\//.test(details.url)) {
-    headers["Content-Security-Policy"] = [DESKTOP_CSP];
-  }
-  callback({ responseHeaders: headers });
-});
+// The hook must be installed before the first window loads a URL, but
+// `session.defaultSession` throws `Session can only be received when app is
+// ready` when touched during module evaluation, so registration is deferred to
+// the `app.whenReady()` block below (see installCspHook()).
+function installCspHook() {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const headers = details.responseHeaders || {};
+    if (/^https?:\/\/127\.0\.0\.1(:\d+)?\//.test(details.url)) {
+      headers["Content-Security-Policy"] = [DESKTOP_CSP];
+    }
+    callback({ responseHeaders: headers });
+  });
+}
 
 const isDev = !app.isPackaged;
 const RESOURCES = app.isPackaged
@@ -407,6 +413,10 @@ ipcMain.handle("dialog:open", (_e, options) =>
 
 // --- Lifecycle ---------------------------------------------------------------
 app.whenReady().then(async () => {
+  // Install the CSP header hook first: it must be in place before the window
+  // loads the console URL from the Python backend.
+  installCspHook();
+
   // Bring up the Computer Use control endpoint before the backend (and its env)
   // is created, so the injected control host/port/token are present.
   try {
