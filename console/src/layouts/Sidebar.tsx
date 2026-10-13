@@ -628,7 +628,11 @@ export default function Sidebar({
             if (item.href) {
               openExternalLink(item.href);
             } else {
-              navigate(item.path);
+              navigate(
+                item.key === "core.inbox" && hasPendingApprovals
+                  ? `${item.path}?tab=approvals`
+                  : item.path,
+              );
             }
           }}
           onMouseEnter={
@@ -663,7 +667,11 @@ export default function Sidebar({
             if (entry.href) {
               openExternalLink(entry.href);
             } else {
-              navigate(entry.path);
+              navigate(
+                isInbox && hasPendingApprovals
+                  ? `${entry.path}?tab=approvals`
+                  : entry.path,
+              );
             }
           }}
         >
