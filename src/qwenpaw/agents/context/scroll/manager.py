@@ -389,6 +389,8 @@ class ScrollContextManager:
             )
             return False
 
+        self._apply_folded_thinking_filter(agent)
+        before = await self._live_tokens(agent)
         await self.compress(agent, forced_config)
         # A provider rejection is authoritative even when local visual-token
         # estimates are below the hard limit. Reuse result folding, without
@@ -412,10 +414,23 @@ class ScrollContextManager:
                 "folded",
                 0,
             ) + len(candidates)
-        return bool(
+        changed = bool(
             self.last_compress.get("evicted")
             or self.last_compress.get("folded"),
         )
+        if not changed:
+            return False
+        after = await self._live_tokens(agent)
+        target = base_config.trigger_ratio * agent.model.context_size
+        # Eviction counts do not prove that the provider request shrank.
+        # Require restored headroom before retrying a rejected request.
+        if after >= before or after > target:
+            logger.warning(
+                f"scroll: overflow recovery cannot safely retry "
+                f"(tokens {before} -> {after}, target {target:.0f})",
+            )
+            return False
+        return True
 
     # pylint: disable-next=too-many-statements,too-many-branches
     async def compress(
@@ -447,7 +462,7 @@ class ScrollContextManager:
                          results with recovery pointers.
         8. think-fold — under sustained pressure, omit active-turn reasoning
                          that a successful model call already read.
-        9. active-fold— if above the hard limit, fold old active-turn
+        9. active-fold— if still above the pressure target, fold active-turn
                          results that a successful model call already read.
         """
         cfg = context_config or agent.context_config
@@ -645,8 +660,8 @@ class ScrollContextManager:
         #    merely because Scroll ran: eviction may already have relieved the
         #    pressure. If it did not, replace recoverable results one at a time
         #    (completed turns only, with the recent five-result tail protected)
-        #    and stop as soon as the pressure target is met. The complete
-        #    active turn stays verbatim under normal pressure. For manual
+        #    and stop as soon as the pressure target is met. Unread active
+        #    results stay verbatim under pressure. For manual
         #    /compact the configured reserve, rather than its synthetic
         #    near-zero trigger, is the meaningful target.
         pressure_threshold = max(trigger, reserve)
@@ -694,7 +709,7 @@ class ScrollContextManager:
         #    current user request, pending/unread results, and the five newest
         #    results stay verbatim. Fold the whole safe batch, then recount
         #    once.
-        if tokens > effective_hard_limit:
+        if tokens > pressure_threshold:
             active_folded, tokens = await self._batch_fold_seen_active_results(
                 agent,
                 tokens=tokens,
@@ -704,7 +719,7 @@ class ScrollContextManager:
                 self.last_compress["active_folded"] = active_folded
                 self.last_compress["folded"] += active_folded
                 logger.info(
-                    "scroll: hard-limit-folded %d seen active-turn tool "
+                    "scroll: pressure-folded %d seen active-turn tool "
                     "result(s)",
                     active_folded,
                 )
@@ -1581,8 +1596,8 @@ class ScrollContextManager:
     ) -> list[tuple[int, int, Any, str]]:
         """Return profitable fold candidates ordered by recovery priority.
 
-        Normally only completed-turn results are returned. For hard-limit
-        recovery, ``seen_active_only`` selects only results in the active turn
+        Normally only completed-turn results are returned. Under sustained
+        pressure, ``seen_active_only`` selects results in the active turn
         that a successful model request already consumed. The five newest
         results are always protected. Text-only results need more than 200
         characters and a smaller pointer. Inline media bypasses that text
