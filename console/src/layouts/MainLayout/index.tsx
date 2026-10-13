@@ -12,14 +12,17 @@ import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { Slot } from "../../plugins/registry/Slot";
+import { PageShell } from "../../components/PageShell";
 import { pickSelectedKey } from "./routeSelection";
+import { RouteDocumentTitle } from "./RouteDocumentTitle";
+import { getRouteTitle } from "./routeTitle";
 
 import { HubModeContext } from "../../contexts/HubModeContext";
 
 const { Content } = Layout;
 
 export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const location = useLocation();
   const currentPath = location.pathname;
   const routes = useRoutes();
@@ -33,6 +36,8 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     [currentPath, routes],
   );
   const settingsCenterActive = selectedKey === "core.settings-center";
+  const selectedRoute = routes.find((route) => route.id === selectedKey);
+  const pageTitle = getRouteTitle(selectedRoute, i18n.language);
 
   // PawApp inline routes (`/apps/<id>`) are rendered *inside* the App Center
   // page (with its "← App Center" bar), never as standalone full-page routes.
@@ -47,6 +52,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   return (
     <HubModeContext.Provider value={hubMode}>
       <Layout className={styles.mainLayout}>
+        <RouteDocumentTitle title={pageTitle} />
         <AmbientLight />
         {!settingsCenterActive && (
           <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
@@ -75,7 +81,14 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                       <Route
                         key={r.id}
                         path={r.path}
-                        element={<r.Component />}
+                        element={
+                          <PageShell
+                            title={getRouteTitle(r, i18n.language)}
+                            mode="compat"
+                          >
+                            <r.Component />
+                          </PageShell>
+                        }
                       />
                     ))}
                   </Routes>

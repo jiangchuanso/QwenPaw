@@ -224,7 +224,12 @@ class TaskTracker:
             except ValueError:
                 pass
 
-    async def request_stop(self, run_key: str) -> bool:
+    async def request_stop(
+        self,
+        run_key: str,
+        *,
+        reason: str = "user",
+    ) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
         logger.debug("[STOP] request_stop called for run_key=%s", run_key)
         async with self._lock:
@@ -246,7 +251,7 @@ class TaskTracker:
                 run_key,
             )
             task = state.task
-            task.cancel()
+            task.cancel(reason)
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
         try:
             await task

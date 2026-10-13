@@ -210,10 +210,15 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
 async def test_request_stop_cancels_live_run():
     tracker = TaskTracker()
     started = asyncio.Event()
+    cancel_reasons = []
 
     async def long_stream(_payload):
         started.set()
-        await asyncio.sleep(60)
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError as exc:
+            cancel_reasons.append(exc.args)
+            raise
         yield "never"
 
     await tracker.attach_or_start(
@@ -225,8 +230,9 @@ async def test_request_stop_cancels_live_run():
 
     assert await tracker.get_status("run-cancel") == "running"
 
-    stopped = await tracker.request_stop("run-cancel")
+    stopped = await tracker.request_stop("run-cancel", reason="timeout")
     assert stopped is True
+    assert cancel_reasons == [("timeout",)]
 
     # Give the task loop time to process cancellation and cleanup.
     await asyncio.sleep(0.05)
