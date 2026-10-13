@@ -371,7 +371,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if last_msg is not None and last_msg.role == "assistant":
                 persist_tool_call_extras(last_msg, tool_call_extras)
         if self._context_manager is not None:
-            self._context_manager.on_save(self, block_list)
+            if getattr(self, "_defer_context_save", False):
+                pending = getattr(self, "_pending_context_save", None)
+                if pending is None:
+                    pending = self._pending_context_save = []
+                pending.extend(block_list)
+            else:
+                self._context_manager.on_save(self, block_list)
 
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).
@@ -1320,10 +1326,17 @@ class QwenPawAgent(CodingModeMixin, Agent):
         for hint in hints:
             self.state.context.append(hint)
 
+    async def _flush_context_save(self) -> None:
+        """Finish deferred history writes before publishing the next event."""
+        pending = getattr(self, "_pending_context_save", None)
+        if pending is not None:
+            self._pending_context_save = None
+            await run_sync_io(self._context_manager.on_save, self, pending)
+
     async def _reply(self, **kwargs: Any) -> Any:
-        """Override kept as extension point; hint injection moved to
-        ``_reasoning`` so each ReAct iteration picks up new hints."""
+        """Drain history writes off the event loop at stream boundaries."""
         stream = super()._reply(**kwargs)
+        self._defer_context_save = True
         try:
             while True:
                 # Heartbeat consumers may resume each event in a new task.
@@ -1336,13 +1349,21 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         evt = await anext(stream)
                     except StopAsyncIteration:
                         return
+                    finally:
+                        await self._flush_context_save()
                 yield evt
         finally:
-            with model_session(
-                self._request_context,
-                self._model_session_id,
-            ):
-                await stream.aclose()
+            try:
+                with model_session(
+                    self._request_context,
+                    self._model_session_id,
+                ):
+                    try:
+                        await stream.aclose()
+                    finally:
+                        await self._flush_context_save()
+            finally:
+                self._defer_context_save = False
 
     def _register_tool_call_hooks(self) -> None:
         """Register per-tool default timeouts on the ToolCoordinator."""
