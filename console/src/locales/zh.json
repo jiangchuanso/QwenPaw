@@ -91,6 +91,10 @@
     "copied": "错误信息已复制",
     "copyFailed": "复制失败，请展开详情后手动复制。",
     "checking": "正在复查失败资源…",
+    "serverReadiness": {
+      "checking": "正在等待本地服务和页面资源恢复可用…",
+      "timeout": "本地服务或页面资源仍不可用，请稍后再次尝试重新加载。"
+    },
     "recheckNote": "originalError 为原始异常，recheck 为故障后的资源复查结果，不能代表首次请求。未知信息保留为 null；复查无法区分 DNS、TLS、CORS 或代理故障。",
     "observations": {
       "missing": "资源复查：资源当前不存在（404）。",

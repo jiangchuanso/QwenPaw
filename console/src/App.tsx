@@ -39,7 +39,8 @@ import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
-import { Suspense, lazy } from "react";
+import { lazy } from "react";
+import { ChunkRecoverySuspense } from "./components/ChunkRecoverySuspense";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 import {
   addRouterBasename,
@@ -487,9 +488,9 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   const routedContent = osActive ? (
     <AuthGuard authStatus={backendInfo.authStatus} useHardRedirect>
       <RuntimeAvailabilityGuard enabled={hubMode}>
-        <Suspense fallback={null}>
+        <ChunkRecoverySuspense fallback={null}>
           <DesktopOSPage />
-        </Suspense>
+        </ChunkRecoverySuspense>
       </RuntimeAvailabilityGuard>
     </AuthGuard>
   ) : (
@@ -498,9 +499,9 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
         <Route
           path="/login"
           element={
-            <Suspense fallback={null}>
+            <ChunkRecoverySuspense fallback={null}>
               <LoginPage />
-            </Suspense>
+            </ChunkRecoverySuspense>
           }
         />
         <Route
@@ -508,9 +509,9 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
           element={
             hubMode ? (
               <AuthGuard authStatus={backendInfo.authStatus}>
-                <Suspense fallback={null}>
+                <ChunkRecoverySuspense fallback={null}>
                   <HubPage />
-                </Suspense>
+                </ChunkRecoverySuspense>
               </AuthGuard>
             ) : (
               <Navigate to="/" replace />

@@ -80,6 +80,10 @@
     "copied": "Đã sao chép thông tin lỗi",
     "copyFailed": "Không thể sao chép. Hãy mở phần chi tiết và sao chép thủ công.",
     "checking": "Đang kiểm tra lại tài nguyên không tải được…",
+    "serverReadiness": {
+      "checking": "Đang chờ dịch vụ cục bộ và tài nguyên trang sẵn sàng…",
+      "timeout": "Dịch vụ cục bộ hoặc tài nguyên trang vẫn chưa sẵn sàng. Hãy thử tải lại sau ít phút."
+    },
     "recheckNote": "originalError là ngoại lệ ban đầu; recheck là kết quả kiểm tra lại tài nguyên sau khi xảy ra lỗi, không phải phản hồi ban đầu. Giá trị chưa xác định được giữ là null. Việc kiểm tra lại không thể phân biệt lỗi DNS, TLS, CORS hoặc proxy.",
     "observations": {
       "missing": "Kiểm tra lại tài nguyên: tài nguyên hiện không tồn tại (404).",

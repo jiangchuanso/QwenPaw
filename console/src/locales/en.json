@@ -91,6 +91,10 @@
     "copied": "Error information copied",
     "copyFailed": "Copy failed. Expand the details and copy them manually.",
     "checking": "Rechecking the failed resource…",
+    "serverReadiness": {
+      "checking": "Waiting for the local service and page resources to become available…",
+      "timeout": "The local service or page resources are still unavailable. Try reloading again shortly."
+    },
     "recheckNote": "originalError is the initial exception; recheck is a later resource check, not the original response. Unknown values remain null. The recheck cannot distinguish DNS, TLS, CORS, or proxy failures.",
     "observations": {
       "missing": "Resource recheck: the resource is currently missing (404).",

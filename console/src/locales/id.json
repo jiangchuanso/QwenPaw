@@ -80,6 +80,10 @@
     "copied": "Informasi kesalahan disalin",
     "copyFailed": "Gagal menyalin. Buka detail dan salin secara manual.",
     "checking": "Memeriksa ulang sumber daya yang gagal dimuat…",
+    "serverReadiness": {
+      "checking": "Menunggu layanan lokal dan sumber daya halaman tersedia…",
+      "timeout": "Layanan lokal atau sumber daya halaman masih belum tersedia. Coba muat ulang lagi sebentar lagi."
+    },
     "recheckNote": "originalError adalah pengecualian awal; recheck adalah pemeriksaan ulang sumber daya setelah kegagalan, bukan respons awal. Nilai yang tidak diketahui tetap null. Pemeriksaan ulang tidak dapat membedakan masalah DNS, TLS, CORS, atau proxy.",
     "observations": {
       "missing": "Pemeriksaan ulang sumber daya: sumber daya saat ini tidak ditemukan (404).",
