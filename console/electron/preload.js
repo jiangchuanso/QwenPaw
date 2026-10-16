@@ -19,8 +19,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener(channel, listener);
   },
 
-  showSaveDialog: (defaultPath) =>
-    ipcRenderer.invoke("dialog:save", defaultPath),
+  // Normalize Electron's { canceled, filePath } / { canceled, filePaths }
+  // result into the Tauri dialog plugin's string | null / string[] | null
+  // contract the frontend consumes (see console/src/desktop/runtime.ts).
+  showSaveDialog: async (defaultPath) => {
+    const result = await ipcRenderer.invoke("dialog:save", defaultPath);
+    return result && !result.canceled && result.filePath
+      ? result.filePath
+      : null;
+  },
 
-  showOpenDialog: (options) => ipcRenderer.invoke("dialog:open", options),
+  showOpenDialog: async (options) => {
+    const result = await ipcRenderer.invoke("dialog:open", options || {});
+    if (!result || result.canceled) return null;
+    return result.filePaths && result.filePaths.length > 0
+      ? result.filePaths
+      : null;
+  },
 });

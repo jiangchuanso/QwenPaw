@@ -1,5 +1,5 @@
 /** Open raw HTML in a new browser context across browser and desktop shells. */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../desktop/runtime";
 import { buildAuthHeaders } from "../api/authHeaders";
 import { workspaceApi } from "../api/modules/workspace";
 import type { WorkspaceRoot } from "../features/files-workspace/types";
@@ -60,7 +60,7 @@ export function openHtmlFile(options: OpenHtmlFileOptions): void {
 
   if (workspaceBacked && isDesktopTauriRuntime()) {
     void invoke("open_workspace_html", { url: resolverUrl, headers }).catch(
-      (error) => console.warn("[html-preview] Tauri open failed", error),
+      (error) => console.warn("[html-preview] desktop shell open failed", error),
     );
     return;
   }

@@ -1,13 +1,15 @@
 /**
  * openHtmlFile renders raw HTML previews across three shells:
- * pywebview (legacy desktop), Tauri (desktop), and blob URL (browser).
+ * pywebview (legacy desktop), the desktop bridge (Tauri or Electron, see
+ * ../desktop/runtime), and blob URL (browser).
  * The workspace-backed flag decides whether native openers are used;
  * blob fallback must always carry the content.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(() => Promise.resolve(undefined)),
+const mockInvoke = vi.fn(() => Promise.resolve(undefined));
+vi.mock("../desktop/runtime", () => ({
+  invoke: (command: string, args?: unknown) => mockInvoke(command, args),
 }));
 
 vi.mock("../api/authHeaders", () => ({
@@ -33,7 +35,6 @@ vi.mock("./pywebview", () => ({
 }));
 
 import { openHtmlFile } from "./openHtmlFile";
-import { invoke } from "@tauri-apps/api/core";
 import { workspaceApi } from "../api/modules/workspace";
 
 const baseOptions = {
@@ -110,14 +111,25 @@ describe("openHtmlFile", () => {
     expect(headers).not.toHaveProperty("X-Chat-Id");
   });
 
-  it("uses the Tauri invoke when workspace backed in a tauri runtime", () => {
+  it("uses the desktop bridge invoke when workspace backed in a desktop runtime", () => {
     mockIsDesktopTauriRuntime.mockReturnValue(true);
     openHtmlFile({ ...baseOptions, workspaceBacked: true });
-    expect(invoke).toHaveBeenCalledWith("open_workspace_html", {
+    expect(mockInvoke).toHaveBeenCalledWith("open_workspace_html", {
       url: "/api/html?path=report.html&root=project",
       headers: expect.objectContaining({ Authorization: "Bearer test" }),
     });
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("does not crash when the desktop bridge rejects", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockInvoke.mockRejectedValueOnce(new Error("bridge down"));
+    mockIsDesktopTauriRuntime.mockReturnValue(true);
+    openHtmlFile({ ...baseOptions, workspaceBacked: true });
+    // Let the rejection settle
+    await Promise.resolve();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it("honors the workspace root option", () => {

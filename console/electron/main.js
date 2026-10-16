@@ -76,6 +76,7 @@ const BINARIES = path.join(RESOURCES, "binaries");
 const READY_PREFIX = "QWENPAW_BACKEND_READY";
 const SHUTDOWN_PATH = "/api/desktop/shutdown";
 const SHUTDOWN_HEADER = "X-Qwenpaw-Desktop-Shutdown-Token";
+const HTML_RESOLVER_PATH = "/api/workspace/html-file-uri";
 const CLOSE_ACK_TIMEOUT_MS = 1500;
 
 let mainWindow = null;
@@ -354,8 +355,56 @@ ipcMain.handle("desktop:open_external_link", (_e, { url }) => {
   }
 });
 
-ipcMain.handle("desktop:open_workspace_html", (_e, { url }) => {
-  if (typeof url === "string") shell.openExternal(url);
+// Port of the Tauri command in console/src-tauri/src/external_link.rs
+// (open_workspace_html): the resolver URL is fetched from the local backend
+// WITH the caller's auth headers, and the returned file:// URI is opened in
+// the OS browser. shell.openExternal cannot attach headers, so the resolver
+// round-trip in the main process is what makes auth work.
+function validateHtmlResolverUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("invalid HTML resolver URL");
+  }
+  if (parsed.protocol !== "http:" || parsed.pathname !== HTML_RESOLVER_PATH) {
+    throw new Error("HTML resolver URL is not supported");
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isLoopback =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]";
+  if (!isLoopback) {
+    throw new Error("HTML resolver must target the local backend");
+  }
+  return parsed;
+}
+
+ipcMain.handle("desktop:open_workspace_html", async (_e, { url, headers }) => {
+  const resolverUrl = validateHtmlResolverUrl(url);
+  const res = await fetch(resolverUrl.toString(), { headers: headers || {} });
+  if (!res.ok) {
+    throw new Error(
+      `HTML resolver request failed with status code ${res.status}`,
+    );
+  }
+  const payload = await res.json();
+  const uri = payload && typeof payload.uri === "string" ? payload.uri : "";
+  let fileUrl;
+  try {
+    fileUrl = new URL(uri);
+  } catch {
+    throw new Error("invalid HTML file URI");
+  }
+  if (fileUrl.protocol !== "file:") {
+    throw new Error("HTML file URI protocol is not supported");
+  }
+  if (!/\.html?$/i.test(fileUrl.pathname)) {
+    throw new Error("HTML file URI must reference an HTML file");
+  }
+  await shell.openExternal(fileUrl.toString());
 });
 
 ipcMain.handle("desktop:download_backend_file", async (_e, { request }) => {
@@ -407,9 +456,17 @@ ipcMain.handle("desktop:check_cached_update", UPDATER_UNSUPPORTED);
 ipcMain.handle("dialog:save", (_e, defaultPath) =>
   dialog.showSaveDialog(mainWindow, { defaultPath }),
 );
-ipcMain.handle("dialog:open", (_e, options) =>
-  dialog.showOpenDialog(mainWindow, options || {}),
-);
+ipcMain.handle("dialog:open", (_e, options) => {
+  // The frontend speaks the Tauri dialog plugin's option shape
+  // ({ multiple, directory, title }); map it onto Electron properties.
+  const properties = ["openFile"];
+  if (options && options.directory) properties.push("openDirectory");
+  if (options && options.multiple) properties.push("multiSelections");
+  return dialog.showOpenDialog(mainWindow, {
+    title: (options && options.title) || undefined,
+    properties,
+  });
+});
 
 // --- Lifecycle ---------------------------------------------------------------
 app.whenReady().then(async () => {
