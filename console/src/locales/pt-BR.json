@@ -35,6 +35,12 @@
     "paste": "Colar",
     "yes": "Sim",
     "no": "Nao",
+    "done": "Concluir",
+    "autoSaveFailed": "Não foi possível salvar as alterações",
+    "discardChangesTitle": "Descartar alterações não salvas?",
+    "discardChangesContent": "Algumas alterações não puderam ser salvas. Você pode continuar editando ou descartar as alterações não salvas e fechar.",
+    "discardAndClose": "Descartar e fechar",
+    "keepEditing": "Continuar editando",
     "configure": "Configurar",
     "all": "Todos",
     "decrease": "Diminuir",
@@ -2022,6 +2028,7 @@
     "emptyValue": "String vazia"
   },
   "modelSelector": {
+    "noFallback": "Não usar",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
     "noFreeModels": "Nenhum modelo gratuito disponível",
@@ -2133,6 +2140,9 @@
     "providersTitle": "Providers",
     "providersDescription": "Configure API keys and endpoints for each provider.",
     "llmTitle": "Modelos",
+    "defaultModels": "Modelos padrão",
+    "defaultChatModel": "Modelo de conversa",
+    "defaultDecisionModel": "Modelo de decisão",
     "defaultLlm": "Padrao LLM",
     "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
@@ -2550,6 +2560,11 @@
     "noSystemPromptCandidates": "Nenhum arquivo correspondente está disponível.",
     "sourceControl": "Controle de código-fonte",
     "preview": "Preview",
+    "htmlPreview": "Prévia de HTML",
+    "htmlReadOnlyTitle": "Esta página contém conteúdo dinâmico",
+    "htmlReadOnlyNotice": "O conteúdo dinâmico não pode ser exibido nesta prévia somente leitura. Abra o arquivo no navegador para acessar todos os recursos.",
+    "htmlReadOnlyNotice_fallback": "Clique no botão abaixo para abrir a página no navegador e ter a experiência completa.",
+    "openHtmlInBrowser": "Abrir no navegador",
     "edit": "Editar",
     "selectFile": "Selecione um arquivo para abrir",
     "closeTab": "Fechar aba",
@@ -3176,6 +3191,8 @@
     "webSearchApiKeyLabel": "Chave de API (opcional)",
     "webSearchQuotaHintBefore": "Grátis: 100 chamadas/dia. Registre-se em ",
     "webSearchQuotaHintAfter": " para 1.000/dia.",
+    "webSearchTavilyKeyHintBefore": "Opcional. Se não configurado ou se a autenticação falhar, a busca gratuita será usada. Obtenha uma chave em ",
+    "webSearchTavilyKeyHintAfter": ".",
     "active": "ativo(s)",
     "available": "Disponível",
     "noEnabled": "Nenhuma ferramenta ativada",
@@ -3331,7 +3348,8 @@
       "runtime": "Execução e automação",
       "migration": "Migração de aplicativos",
       "other": "Sem categoria"
-    }
+    },
+    "webSearchConfigLoadError": "Falha ao carregar as credenciais deste provedor. Tente novamente antes de salvar."
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

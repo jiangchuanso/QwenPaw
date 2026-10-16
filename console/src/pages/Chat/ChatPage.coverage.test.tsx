@@ -539,7 +539,6 @@ vi.mock("./utils", async () => {
     getActiveSenderTextarea: vi.fn(() => null),
     getSenderTextareaFromTarget: vi.fn(() => null),
     setTextareaValue: vi.fn(),
-    clearSubmittedSenderInput: vi.fn(),
   };
 });
 

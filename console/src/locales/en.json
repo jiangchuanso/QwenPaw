@@ -57,6 +57,10 @@
     "advancedSettings": "Advanced",
     "done": "Done",
     "autoSaveFailed": "Could not save changes",
+    "discardChangesTitle": "Discard unsaved changes?",
+    "discardChangesContent": "Some changes could not be saved. You can continue editing or discard the unsaved changes and close.",
+    "discardAndClose": "Discard and close",
+    "keepEditing": "Continue editing",
     "configure": "Configure",
     "all": "All",
     "decrease": "Decrease",
@@ -2434,6 +2438,7 @@
     "configuredModels": "Configured models",
     "freeModelsOnly": "Free models only",
     "chooseFallback": "Backup model",
+    "noFallback": "None",
     "moveFallbackUp": "Move {{model}} up",
     "moveFallbackDown": "Move {{model}} down",
     "removeFallback": "Remove {{model}}",
@@ -2524,6 +2529,10 @@
     "retry": "Retry"
   },
   "models": {
+    "modelType": "Model type",
+    "modelTypeChat": "Chat",
+    "modelTypeDecision": "Decision",
+    "decisionModelHint": "Decision models are configured here for future automation features and cannot be used for chat.",
     "connectProviderTitle": "Connect your first model",
     "cardStatus": {
       "configured": "Configured",
@@ -2548,6 +2557,9 @@
     "providersTitle": "Providers",
     "providersDescription": "Configure API keys and endpoints for each provider.",
     "llmTitle": "Models",
+    "defaultModels": "Default models",
+    "defaultChatModel": "Chat model",
+    "defaultDecisionModel": "Decision model",
     "defaultLlm": "Default LLM",
     "notConfiguredYet": "Not configured",
     "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
@@ -3042,6 +3054,9 @@
     "sourceControl": "Source control",
     "preview": "Preview",
     "htmlPreview": "HTML preview",
+    "htmlReadOnlyTitle": "This page includes dynamic content",
+    "htmlReadOnlyNotice": "Dynamic content isn't available in this read-only preview. Open the file in your browser to view the full experience.",
+    "htmlReadOnlyNotice_fallback": "Click the button below to open the page in your browser for the full experience.",
     "openHtmlInBrowser": "Open in browser",
     "edit": "Edit",
     "selectFile": "Select a file to open",
@@ -3831,6 +3846,8 @@
     "webSearchApiKeyLabel": "API Key (optional)",
     "webSearchQuotaHintBefore": "Free: 100 calls/day. Register at ",
     "webSearchQuotaHintAfter": " for 1,000/day.",
+    "webSearchTavilyKeyHintBefore": "Optional. If unconfigured or authentication fails, free search will be used. Get a key at ",
+    "webSearchTavilyKeyHintAfter": ".",
     "active": "active",
     "available": "Available",
     "noEnabled": "No tools enabled",
@@ -3983,7 +4000,8 @@
     "filterAll": "All tools",
     "filterEnabled": "Enabled",
     "filterDisabled": "Disabled",
-    "enabledCount": "{{enabled}} / {{total}} enabled"
+    "enabledCount": "{{enabled}} / {{total}} enabled",
+    "webSearchConfigLoadError": "Failed to load this provider's credentials. Retry before saving."
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -4011,6 +4029,10 @@
     "system": "System"
   },
   "chat": {
+    "sessionSettings": {
+      "advanced": "Advanced options",
+      "decisionEnabled": "Use decision model"
+    },
     "longTextPaste": {
       "title": "Paste long text",
       "asText": "Paste as text",
@@ -4141,6 +4163,10 @@
       "moveToGroup": "Move to group",
       "copyId": "Copy conversation ID",
       "delete": "Delete"
+    },
+    "pluginSubmission": {
+      "staleConversation": "Open the original conversation before submitting this action.",
+      "notReady": "Chat is not ready. Open the original conversation and retry."
     },
     "queue": {
       "title": "Message Queue",

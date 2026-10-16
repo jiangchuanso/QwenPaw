@@ -35,6 +35,12 @@
     "paste": "Tempel",
     "yes": "Ya",
     "no": "Tidak",
+    "done": "Selesai",
+    "autoSaveFailed": "Perubahan tidak dapat disimpan",
+    "discardChangesTitle": "Buang perubahan yang belum disimpan?",
+    "discardChangesContent": "Beberapa perubahan tidak dapat disimpan. Anda dapat melanjutkan pengeditan atau membuang perubahan yang belum disimpan dan menutup jendela.",
+    "discardAndClose": "Buang dan tutup",
+    "keepEditing": "Lanjutkan mengedit",
     "configure": "Konfigurasi",
     "all": "Semua",
     "decrease": "Kurangi",
@@ -1283,6 +1289,7 @@
     "turnCanceled": "Dihentikan"
   },
   "modelSelector": {
+    "noFallback": "Tidak digunakan",
     "selectModel": "Pilih model",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
     "noFreeModels": "Tidak ada model gratis tersedia",
@@ -2073,6 +2080,8 @@
     "webSearchApiKeyLabel": "Kunci API (opsional)",
     "webSearchQuotaHintBefore": "Gratis 100 panggilan/hari. Daftar di ",
     "webSearchQuotaHintAfter": " untuk 1.000/hari.",
+    "webSearchTavilyKeyHintBefore": "Opsional. Jika belum dikonfigurasi atau autentikasi gagal, pencarian gratis akan digunakan. Dapatkan kunci di ",
+    "webSearchTavilyKeyHintAfter": ".",
     "active": "aktif",
     "available": "Tersedia",
     "noEnabled": "Tidak ada alat yang diaktifkan",
@@ -2228,7 +2237,8 @@
       "runtime": "Eksekusi dan otomatisasi",
       "migration": "Migrasi aplikasi",
       "other": "Belum dikategorikan"
-    }
+    },
+    "webSearchConfigLoadError": "Gagal memuat kredensial penyedia ini. Coba lagi sebelum menyimpan."
   },
   "modelConfig": {
     "promptTitle": "Model LLM Diperlukan - Pilih di Chat Setelah Konfigurasi",
@@ -3661,6 +3671,9 @@
     "providersTitle": "Penyedia",
     "providersDescription": "Konfigurasi API key dan endpoint untuk setiap penyedia.",
     "llmTitle": "Model",
+    "defaultModels": "Model default",
+    "defaultChatModel": "Model percakapan",
+    "defaultDecisionModel": "Model keputusan",
     "defaultLlm": "LLM Default",
     "notConfiguredYet": "Belum dikonfigurasi",
     "llmDescription": "Atur model LLM default global dari penyedia yang diotorisasi. Anda dapat memilih model tertentu untuk setiap Agen di halaman Chat.",
@@ -4094,6 +4107,11 @@
     "noSystemPromptCandidates": "Tidak ada file yang cocok.",
     "sourceControl": "Kontrol sumber",
     "preview": "Preview",
+    "htmlPreview": "Pratinjau HTML",
+    "htmlReadOnlyTitle": "Halaman ini berisi konten dinamis",
+    "htmlReadOnlyNotice": "Konten dinamis tidak dapat ditampilkan dalam pratinjau hanya baca ini. Buka file di browser untuk melihat tampilan lengkapnya.",
+    "htmlReadOnlyNotice_fallback": "Klik tombol di bawah untuk membuka halaman di browser dan melihat tampilan lengkapnya.",
+    "openHtmlInBrowser": "Buka di browser",
     "edit": "Edit",
     "selectFile": "Pilih file untuk dibuka",
     "closeTab": "Tutup tab",
