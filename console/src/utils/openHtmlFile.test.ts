@@ -7,7 +7,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const mockInvoke = vi.fn(() => Promise.resolve(undefined));
+const mockInvoke = vi.fn((_command: string, _args?: unknown) =>
+  Promise.resolve(undefined),
+);
 vi.mock("../desktop/runtime", () => ({
   invoke: (command: string, args?: unknown) => mockInvoke(command, args),
 }));
