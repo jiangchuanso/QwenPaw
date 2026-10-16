@@ -60,7 +60,7 @@ export function openHtmlFile(options: OpenHtmlFileOptions): void {
 
   if (workspaceBacked && isDesktopTauriRuntime()) {
     void invoke("open_workspace_html", { url: resolverUrl, headers }).catch(
-      (error) => console.warn("[html-preview] desktop shell open failed", error),
+      (error) => console.warn("[html-preview] desktop open failed", error),
     );
     return;
   }
