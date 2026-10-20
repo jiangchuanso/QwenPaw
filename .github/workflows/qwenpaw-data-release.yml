@@ -66,7 +66,28 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "qwenpaw-data plugin version: $version"
 
+      - name: Check OSS secrets
+        id: preflight
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          # Fork robustness: without OSS credentials the publish steps below
+          # are skipped (with a warning) instead of failing at `ossutil config
+          # -e` with an empty endpoint. Mirrors the oss-secrets preflight in
+          # plugins-release.yml. A job-level `if` cannot read the secrets
+          # context, so the presence check runs as a step whose output gates
+          # the steps that talk to OSS.
+          if [ -n "$OSS_ENDPOINT" ] && [ -n "$OSS_ACCESS_KEY_ID" ] && [ -n "$OSS_ACCESS_KEY_SECRET" ]; then
+            echo "has-oss-secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-oss-secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::OSS secrets are not configured; skipping the qwenpaw-data publish."
+          fi
+
       - name: Install ossutil
+        if: steps.preflight.outputs.has-oss-secrets == 'true'
         run: |
           wget -q https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
           unzip -q ossutil-v1.7.18-linux-amd64.zip
@@ -75,6 +96,7 @@ jobs:
           ossutil --version
 
       - name: Configure ossutil
+        if: steps.preflight.outputs.has-oss-secrets == 'true'
         run: |
           ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
             -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
@@ -83,6 +105,7 @@ jobs:
 
       - name: Decide whether to publish
         id: decide
+        if: steps.preflight.outputs.has-oss-secrets == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           FORCE: ${{ github.event.inputs.force }}
