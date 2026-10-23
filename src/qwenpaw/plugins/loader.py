@@ -20,6 +20,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from packaging.requirements import Requirement
 
+from ..utils.runtime_environment import require_pip, require_uv
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .dependency_gate import (
@@ -1557,6 +1558,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             return
 
         # ── Attempt 1: python -m pip ──────────────────────────────────
+        require_pip(sys.executable)
         try:
             result = self._run_subprocess_with_streaming_log(
                 [
@@ -1566,6 +1568,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     "install",
                     "--disable-pip-version-check",
                     "--no-input",
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
@@ -1608,6 +1611,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         logger.info(
             f"pip not available; retrying with uv for plugin '{plugin_id}'",
         )
+        require_uv(uv)
         try:
             uv_result = self._run_subprocess_with_streaming_log(
                 [
@@ -1616,6 +1620,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     "install",
                     "--python",
                     sys.executable,
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
@@ -1660,6 +1665,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 "Desktop, or install the plugin's dependencies manually.",
             )
         target = str(_plugin_site_dir())
+        if not require_pip(python):
+            raise RuntimeError(
+                "Bundled pip is missing; update QwenPaw Desktop",
+            )
         try:
             result = self._run_subprocess_with_streaming_log(
                 [
@@ -1671,6 +1680,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     "--no-input",
                     "--target",
                     target,
+                    "--upgrade",
+                    "certifi>=2026.10.19",
                     "-r",
                     req,
                 ],
