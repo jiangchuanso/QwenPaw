@@ -893,7 +893,7 @@ class TestToolApproval:
     def test_approval_toggle_renders_and_switches(
         self, clean_chat_page: ChatPage, request: pytest.FixtureRequest
     ):
-        """Toggle renders, exposes 4 levels, and the Tag follows the choice."""
+        """Toggle renders, exposes the approval levels, and the Tag follows the choice."""
         test_name = request.node.name
 
         log_test_step("1. Open the Chat page")
@@ -903,10 +903,13 @@ class TestToolApproval:
         toggle = chat.get_approval_toggle()
         expect(toggle).to_be_visible(timeout=10000)
 
-        log_test_step("3. Open the menu and assert exactly 4 levels")
+        log_test_step("3. Open the menu and assert the approval levels")
         chat.open_approval_menu()
         items = chat.get_approval_menu_items()
-        assert len(items) == 4, f"expected 4 approval levels, got {len(items)}"
+        assert len(items) == ChatPage.APPROVAL_MENU_ITEM_COUNT, (
+            f"expected {ChatPage.APPROVAL_MENU_ITEM_COUNT} approval levels, "
+            f"got {len(items)}"
+        )
         chat.page.keyboard.press("Escape")
         chat.wait(300)
 

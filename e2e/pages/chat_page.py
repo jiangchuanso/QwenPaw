@@ -223,6 +223,11 @@ class ChatPage(BasePage):
         "AUTO": ("Auto Mode", "自动模式"),
         "OFF": ("Off Mode", "关闭模式"),
     }
+    # Upstream #8283 ("decision-model-backed tool approval mode") added a fifth
+    # menu entry, JEV. It is rendered in the dropdown at all times (disabled
+    # unless the session decision model is enabled), so the open-menu item count
+    # is one higher than the set of directly selectable levels above.
+    APPROVAL_MENU_ITEM_COUNT = len(APPROVAL_LEVELS) + 1
     # Only items inside the currently-open dropdown (antd keeps closed menus in
     # the DOM with a ``-hidden`` modifier). The #7334 rebuild kept the antd
     # Dropdown for the menu itself, so this selector is unchanged.

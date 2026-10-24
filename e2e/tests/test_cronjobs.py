@@ -638,14 +638,13 @@ class TestCronjobEditAndUpdate:
             page.wait_for_timeout(1200)
             logger.info(f"Job name changed to: {updated_name}")
 
-            log_test_step("Close the drawer to flush autosave")
-            edit_drawer.get_by_role("button", name="Close").click()
-            page.wait_for_timeout(1500)
+            log_test_step("Save the edit (the drawer requires an explicit Save)")
+            edit_drawer.get_by_role("button", name="Save").click()
             current_name = updated_name
 
             log_test_step("Verify the update succeeded")
             updated_row = page.locator(f'tr:has-text("{updated_name}")').first
-            assert updated_row.count() > 0, f"Updated job not found: {updated_name}"
+            expect(updated_row).to_be_visible(timeout=15000)
             logger.info(f"Job name update verified: {updated_name}")
 
             log_test_result(test_name, True, 0)
