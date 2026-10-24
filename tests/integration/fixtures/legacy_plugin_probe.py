@@ -189,7 +189,7 @@ async def run(phase):
             assert PLUGIN_ID not in load_config().plugins
             assert json.loads(
                 (working / "legacy-user-data/state.json").read_text(
-                    encoding="utf-8"
+                    encoding="utf-8",
                 ),
             ) == {
                 "calls": 6,
