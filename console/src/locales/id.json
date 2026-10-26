@@ -62,13 +62,26 @@
     "cliAuthenticated": "{{type}} CLI telah diautentikasi"
   },
   "desktop": {
+    "update": {
+      "title": "Perbarui QwenPaw?",
+      "otherWindows": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_one": "Ada {{count}} jendela lain yang terbuka.",
+      "otherWindows_other": "Ada {{count}} jendela lain yang terbuka.",
+      "description": "Pembaruan akan menutup semua jendela QwenPaw dan menghentikan tugas yang sedang berjalan.",
+      "confirm": "Tutup dan perbarui",
+      "preparing": "Menutup jendela…"
+    },
     "closeWindow": {
-      "title": "Tutup Jendela",
-      "description": "Apa yang ingin Anda lakukan saat menutup jendela? Keluar dari aplikasi akan menghentikan semua tugas yang sedang berjalan dan tugas terjadwal.",
+      "title": "Tutup QwenPaw?",
+      "description": "Tetap berjalan di latar belakang untuk melanjutkan tugas. Keluar sepenuhnya akan mengakhiri tugas yang sedang berjalan.",
       "remember": "Ingat pilihan saya",
       "showWindow": "Tampilkan Jendela",
       "minimizeToTray": "Minimalkan ke baki sistem",
       "quitApp": "Keluar dari Aplikasi",
+      "keepRunning": "Jalankan di latar belakang",
+      "quitting": "Keluar…",
+      "stopService": "Keluar sepenuhnya",
+      "stopBlocked": "QwenPaw masih digunakan di jendela atau aplikasi lain. Tutup semuanya sebelum keluar sepenuhnya.",
       "preference": "Tutup Jendela",
       "askEveryTime": "Tanya setiap saat"
     }
@@ -2131,10 +2144,6 @@
       "glob_search": {
         "name": "Temukan berkas",
         "description": "Temukan berkas berdasarkan nama atau pola jalur."
-      },
-      "ast_search": {
-        "name": "Cari struktur kode",
-        "description": "Cari pola kode dengan memahami sintaks."
       },
       "desktop_screenshot": {
         "name": "Ambil tangkapan layar",
@@ -4210,9 +4219,6 @@
     "changeProjectDirectory": "Kelola",
     "manageDefaultFolders": "Workspace bawaan",
     "projectDirectoryWorkspaceFallback": "Menggunakan direktori konfigurasi Agent",
-    "enhancedCodeCapability": "Kemampuan kode lanjutan",
-    "enhancedCodeCapabilityTooltip": "Menambahkan alat kode tanpa mengubah direktori proyek.",
-    "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
     "description": "Konfigurasi parameter runtime agen",
     "reactAgentTitle": "Agen ReAct",
     "llmRetryTitle": "Coba Ulang LLM Otomatis",
