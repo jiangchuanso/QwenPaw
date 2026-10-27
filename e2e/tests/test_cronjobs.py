@@ -14,6 +14,7 @@ Run with: pytest tests/test_cronjobs_p0.py -v
 from __future__ import annotations
 
 import logging
+import re
 import time
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
@@ -635,14 +636,22 @@ class TestCronjobEditAndUpdate:
             edit_name_input = edit_drawer.locator('#name:visible')
             edit_name_input.clear()
             edit_name_input.fill(updated_name)
-            page.wait_for_timeout(1200)
             logger.info(f"Job name changed to: {updated_name}")
 
-            log_test_step("Save the edit (the drawer requires an explicit Save)")
-            edit_drawer.get_by_role("button", name="Save").click()
+            log_test_step("Save the updated job")
+            with page.expect_response(
+                lambda response: response.request.method == "PUT"
+                and response.url.split("?")[0].endswith(f"/cron/jobs/{job_id}")
+            ) as saved:
+                edit_drawer.get_by_role(
+                    "button", name=re.compile(r"^(Save|保存)$")
+                ).click()
+            assert saved.value.ok, saved.value.text()
+            expect(edit_drawer).not_to_be_visible()
             current_name = updated_name
 
             log_test_step("Verify the update succeeded")
+            page.reload()
             updated_row = page.locator(f'tr:has-text("{updated_name}")').first
             expect(updated_row).to_be_visible(timeout=15000)
             logger.info(f"Job name update verified: {updated_name}")
