@@ -95,7 +95,9 @@ function backendExe() {
   return path.join(BINARIES, "qwenpaw-backend", name);
 }
 function bundledPython() {
-  const base = path.join(BINARIES, "python-runtime");
+  // stage_python_runtime.py unpacks into <dest>/python, so the interpreter is
+  // one level deeper than the runtime root (python-runtime/python/...).
+  const base = path.join(BINARIES, "python-runtime", "python");
   return process.platform === "win32"
     ? path.join(base, "python.exe")
     : path.join(base, "bin", "python3");
@@ -121,10 +123,29 @@ function buildBackendEnv() {
   env.PATH = backendDir + path.delimiter + (env.PATH || "");
   env.QWENPAW_TAURI_RESOURCE_DIR = RESOURCES;
 
-  if (fs.existsSync(bundledPython())) {
-    env.QWENPAW_DESKTOP_PY_RUNTIME = bundledPython();
+  const pythonRuntime = bundledPython();
+  if (fs.existsSync(pythonRuntime)) {
+    env.QWENPAW_DESKTOP_PY_RUNTIME = pythonRuntime;
   } else {
     console.warn("[backend] bundled python runtime not found");
+  }
+  // qwenpaw.plugins.channel_bootstrap requires QWENPAW_TAURI_RESOURCE_DIR (set
+  // above) and these three to be present *together*: the manifest pins the
+  // interpreter, the readable site and the dependency paths, and any partially
+  // populated launcher environment is rejected as
+  // CHANNEL_RUNTIME_MANIFEST_INVALID. Staged by
+  // scripts/pack-electron/stage_channel_runtime.sh.
+  const channelRuntime = path.join(BINARIES, "channel-runtime");
+  const channelManifest = path.join(channelRuntime, "runtime.json");
+  if (fs.existsSync(channelManifest) && fs.existsSync(pythonRuntime)) {
+    const supportRoot = path.join(channelRuntime, "site");
+    env.QWENPAW_CHANNEL_RUNTIME_MANIFEST = channelManifest;
+    env.QWENPAW_CHANNEL_SUPPORT_ROOT = supportRoot;
+    env.QWENPAW_CHANNEL_DEPENDENCY_PATHS = JSON.stringify([supportRoot]);
+  } else {
+    console.warn(
+      "[backend] readable channel runtime not staged; channel plugins cannot resolve their dependencies",
+    );
   }
   if (fs.existsSync(bundledNode())) {
     env.QWENPAW_DESKTOP_NODE_RUNTIME = path.join(BINARIES, "node-runtime");

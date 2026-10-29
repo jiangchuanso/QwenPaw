@@ -48,7 +48,13 @@ npm run build:prod
 cd ..
 
 echo "== Step 2: Building PyInstaller backend (Tauri staging skipped) =="
-QWENPAW_SKIP_TAURI_STAGING=1 bash scripts/pack-tauri/build_pyinstaller.sh
+# The "channels" extra is requested even though those SDKs are excluded from the
+# frozen host: the wheel pool built here is what the readable channel runtime
+# resolves its site from (see step 3a), while scripts/pack-tauri/qwenpaw.spec
+# keeps them out of the backend bundle.
+QWENPAW_SKIP_TAURI_STAGING=1 \
+  QWENPAW_EXTRAS="${QWENPAW_EXTRAS:-qwenpaw-data,hub,local,codex,qoder,channels}" \
+  bash scripts/pack-tauri/build_pyinstaller.sh
 
 echo "== Step 3: Staging backend + runtimes into console/electron/binaries =="
 rm -rf "${STAGE}"
@@ -66,6 +72,14 @@ python3 scripts/pack-tauri/stage_python_runtime.py --dest "${STAGE}/python-runti
 echo "Staging node runtime..."
 python3 scripts/pack-tauri/stage_node_runtime.py --dest "${STAGE}/node-runtime"
 echo "Staged."
+echo ""
+
+echo "== Step 3a: Staging the readable channel runtime =="
+# Channel plugins run against their own site directory and are launched through
+# a manifest (qwenpaw.plugins.channel_bootstrap), which the Tauri build staged
+# inside build_pyinstaller.sh — under console/src-tauri, which this build does
+# not have. Stage it against the Electron resource root instead.
+bash scripts/pack-electron/stage_channel_runtime.sh "${REPO_ROOT}/console/electron" "${DIST}"
 echo ""
 
 echo "== Step 4: Building Electron bundle =="
