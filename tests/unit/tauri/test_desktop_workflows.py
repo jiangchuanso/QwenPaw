@@ -2,13 +2,13 @@
 """Regression tests for desktop packaging workflows."""
 
 from pathlib import Path
+import re
 import tomllib
 
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 import pytest
 import yaml
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

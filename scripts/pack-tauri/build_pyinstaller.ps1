@@ -170,7 +170,10 @@ if (Test-PythonImport "import dotenv") {
 Write-Host ""
 
 # Install project dependencies (ensures ALL runtime deps are importable)
-Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
+Write-Host "== Preparing desktop dependency wheels ==" -ForegroundColor Yellow
+$DESKTOP_WHEELS = Join-Path $DIST "desktop-wheels"
+if (Test-Path $DESKTOP_WHEELS) { Remove-Item -Recurse -Force $DESKTOP_WHEELS }
+New-Item -ItemType Directory -Force -Path $DESKTOP_WHEELS | Out-Null
 # Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
 # at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
 # wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
@@ -185,7 +188,21 @@ Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
 # default transcription provider is "disabled" and remote models are served by
 # an external llama-server.
 $QwenPawExtras = if ($env:QWENPAW_EXTRAS) { $env:QWENPAW_EXTRAS } else { "qwenpaw-data,hub,local,codex,qoder" }
-Install-PythonPackages -Packages @("-e", ".[$QwenPawExtras]", "setuptools<82")
+# Reuse published wheels; build source-only dependencies once for both the
+# frozen host and readable runtime, using the canonical Python ABI.
+& $PYTHON_BIN -m pip wheel --prefer-binary --wheel-dir $DESKTOP_WHEELS `
+    ".[$QwenPawExtras]" "setuptools<82" wheel `
+    -r (Join-Path $REPO_ROOT "scripts\pack-tauri\native-host-requirements.txt")
+Assert-LastExit "Desktop dependency wheel build failed"
+$HOST_WHEELS = @(Get-ChildItem $DESKTOP_WHEELS -Filter "qwenpaw-*.whl")
+if ($HOST_WHEELS.Count -ne 1) { throw "Expected one host wheel" }
+$HOST_WHEEL = $HOST_WHEELS[0].FullName
+
+Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
+Install-PythonPackages -Packages @(
+    "--no-index", "--only-binary=:all:", "--find-links", $DESKTOP_WHEELS,
+    "${HOST_WHEEL}[$QwenPawExtras]", "setuptools<82", "wheel"
+)
 Write-Host "Project dependencies installed with extras: $QwenPawExtras" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
@@ -193,7 +210,10 @@ Write-Host "Project dependencies installed with extras: $QwenPawExtras" -Foregro
 if (-not (Test-PythonImport "from acp import Agent")) {
     Write-Host "Fixing agent-client-protocol namespace..."
     Uninstall-PythonPackage "acp"
-    Install-PythonPackages -Packages @("agent-client-protocol>=0.9.0,<0.11.0")
+    Install-PythonPackages -Packages @(
+        "--no-index", "--only-binary=:all:", "--find-links", $DESKTOP_WHEELS,
+        "--force-reinstall", "--no-deps", "agent-client-protocol>=0.9.0,<0.11.0"
+    )
     Write-Host "agent-client-protocol installed" -ForegroundColor Green
 }
 
@@ -272,6 +292,8 @@ if ($SKIP_TAURI_STAGING -eq "1") {
         --disable-pip-version-check `
         --no-input `
         --no-deps `
+        --no-index `
+        --find-links $DESKTOP_WHEELS `
         --only-binary=:all: `
         -r $NATIVE_HOST_REQUIREMENTS
     Assert-LastExit "Failed to install Chrome Native Messaging host dependencies"
@@ -280,6 +302,28 @@ if ($SKIP_TAURI_STAGING -eq "1") {
         --check-runtime
     Assert-LastExit "Bundled Python runtime cannot run the Native Messaging host"
     Write-Host ""
+
+    Write-Host "== Building readable channel runtime ==" -ForegroundColor Yellow
+    & $PYTHON_BIN (Join-Path $REPO_ROOT "scripts/pack/validate_channel_contracts.py") --project-root $REPO_ROOT
+    Assert-LastExit "Official channel contract validation failed"
+    $CHANNEL_WHEELS = Join-Path $DIST "channel-wheels"
+    $CHANNEL_RUNTIME = Join-Path $BINARIES_DIR "channel-runtime"
+    foreach ($generated in @($CHANNEL_WHEELS, $CHANNEL_RUNTIME)) {
+        if (Test-Path $generated) { Remove-Item -Recurse -Force $generated }
+    }
+    New-Item -ItemType Directory -Force -Path $CHANNEL_WHEELS | Out-Null
+    # Select only channel dependencies from the shared pool with the target
+    # interpreter; full-only extras must not enlarge the readable runtime.
+    & $NATIVE_HOST_PYTHON -m pip download --no-index --only-binary=:all: `
+        --find-links $DESKTOP_WHEELS `
+        --dest $CHANNEL_WHEELS "${HOST_WHEEL}[channels]"
+    Assert-LastExit "Channel wheel resolution failed"
+    $RUNTIME_RELEASE = (Get-Content (Join-Path $PYTHON_RUNTIME_DIR ".python-runtime-version") -Raw).Trim()
+    & $PYTHON_BIN (Join-Path $PSScriptRoot "stage_channel_runtime.py") `
+        --python $NATIVE_HOST_PYTHON --wheel $HOST_WHEEL `
+        --resource-dir (Join-Path $REPO_ROOT "console\src-tauri") `
+        --wheelhouse $CHANNEL_WHEELS --python-runtime-release $RUNTIME_RELEASE
+    Assert-LastExit "Readable channel runtime staging failed"
 
     Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow
     & $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_node_runtime.py") `
@@ -290,17 +334,17 @@ if ($SKIP_TAURI_STAGING -eq "1") {
     if (-not $CARGO_BIN) {
         throw "cargo not found; Rust toolchain is required to build qwenpaw-computer-use-helper"
     }
-    $TAURI_DIR = Join-Path $REPO_ROOT "console\src-tauri"
-    Push-Location $TAURI_DIR
+    $HELPER_CRATE = Join-Path $REPO_ROOT "console\native\computer-use-helper"
+    Push-Location $HELPER_CRATE
     try {
         & $CARGO_BIN build --release --bin qwenpaw-computer-use-helper
         Assert-LastExit "Failed to build qwenpaw-computer-use-helper"
     } finally {
         Pop-Location
     }
-    $TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $TAURI_DIR "target" }
+    $TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $HELPER_CRATE "target" }
     if (-not [System.IO.Path]::IsPathRooted($TARGET_DIR)) {
-        $TARGET_DIR = Join-Path $TAURI_DIR $TARGET_DIR
+        $TARGET_DIR = Join-Path $HELPER_CRATE $TARGET_DIR
     }
     $COMPUTER_USE_HELPER_EXE = Join-Path $TARGET_DIR "release\qwenpaw-computer-use-helper.exe"
     if (-not (Test-Path $COMPUTER_USE_HELPER_EXE)) {

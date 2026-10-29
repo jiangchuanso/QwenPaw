@@ -10,6 +10,7 @@ option.
 
 import importlib.util
 import os
+import runpy
 import sys
 from pathlib import Path
 
@@ -38,6 +39,21 @@ REPO_ROOT = Path(SPECPATH).parent.parent
 
 SRC = REPO_ROOT / "src" / "qwenpaw"
 MAIL_MCP_SRC = REPO_ROOT / "packages" / "qwenpawmail-mcp" / "src"
+_external_channel_modules = tuple(
+    "qwenpaw.app.channels." + row["channel_key"]
+    for row in runpy.run_path(
+        str(SRC / "plugins/official_channel_catalog.py")
+    )["OFFICIAL_CHANNELS"]
+)
+
+
+def core_channel_module(name):
+    return not any(
+        name == module or name.startswith(module + ".")
+        for module in _external_channel_modules
+    )
+
+
 if sys.platform == "darwin":
     codesign_identity = os.environ.get(
         "PYINSTALLER_CODESIGN_IDENTITY"
@@ -47,9 +63,13 @@ if sys.platform == "darwin":
 else:
     codesign_identity = None
 
+
 def collect_tree(source_dir, target_dir):
     return [
-        (str(path), str(Path(target_dir) / path.relative_to(source_dir).parent))
+        (
+            str(path),
+            str(Path(target_dir) / path.relative_to(source_dir).parent),
+        )
         for path in source_dir.rglob("*")
         if path.is_file()
     ]
@@ -72,7 +92,6 @@ _data_dirs = [
     ("security/tool_guard/rules", "qwenpaw/security/tool_guard/rules"),
     ("security/skill_scanner/rules", "qwenpaw/security/skill_scanner/rules"),
     ("security/skill_scanner/data", "qwenpaw/security/skill_scanner/data"),
-    ("app/channels/yuanbao/proto", "qwenpaw/app/channels/yuanbao/proto"),
     ("providers/data", "qwenpaw/providers/data"),
 ]
 datas = [
@@ -125,9 +144,7 @@ qoder_binaries = [
 # resolves sibling hosts and resources relative to the main executable.
 _, _codex_bin_dir = get_package_paths("codex_cli_bin")
 _codex_bin_dir = Path(_codex_bin_dir)
-_codex_executable = (
-    "codex.exe" if sys.platform == "win32" else "codex"
-)
+_codex_executable = "codex.exe" if sys.platform == "win32" else "codex"
 _codex_cli = _codex_bin_dir / "bin" / _codex_executable
 if not _codex_cli.is_file():
     raise SystemExit(
@@ -152,9 +169,16 @@ datas.append(
 # The native Code Mode worker runs under the bundled standalone CPython.
 datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
 
-# Collect package metadata for packages that use importlib.metadata at runtime.
-# Keep this allowlist in sync when adding runtime dependencies that query
-# importlib.metadata, otherwise packaged sidecars may fail only after install.
+# The dependency gate needs complete host metadata, not only the packages
+# that query their own versions. Both desktop builds install qwenpaw[full].
+datas += runpy.run_path(str(Path(SPECPATH) / "collect_runtime_metadata.py"))[
+    "collect_runtime_metadata"
+](
+    ["qwenpaw[full]"],
+    copy_metadata,
+)
+
+# Preserve metadata for historical optional integrations when installed.
 _metadata_pkgs = [
     "qwenpaw",
     "fastmcp",
@@ -218,8 +242,11 @@ a = Analysis(
         *collect_submodules("qwenpaw.cli"),
         # The mail MCP package lives under a second setuptools source root.
         *collect_submodules("qwenpawmail_mcp"),
-        # All channel adapters (imported on-demand at runtime)
-        *collect_submodules("qwenpaw.app.channels"),
+        # External runtimes live in the authenticated readable ZIP resources.
+        # Keep common host/QR services and Console in the frozen host.
+        *collect_submodules(
+            "qwenpaw.app.channels", filter=core_channel_module
+        ),
         # Console channel — required by qwenpaw.app.channels.registry but
         # loaded via importlib.import_module(".console", ...), so PyInstaller
         # cannot discover it. Without this entry the desktop bundle fails to
@@ -275,14 +302,14 @@ a = Analysis(
     runtime_hooks=[],
     # QwenPaw talks to a remote llama-server, so the embedded llama.cpp
     # local-inference stack is intentionally NOT shipped in the desktop bundle
-    # (this keeps the installer small). The ModelScope SDK, huggingface_hub and
-    # any llama-cpp Python bindings are only used by qwenpaw.local_models to
-    # download GGUF weights for local inference, and all of them are imported
-    # lazily inside that package, so excluding them leaves startup and every
-    # remote-model path unaffected. The openai-whisper stack (torch/numba) is
-    # likewise dropped: only the opt-in "local_whisper" transcription path uses
-    # it (the default is "disabled"), while remote transcription ("whisper_api")
-    # keeps working. Drop an entry here to restore the corresponding feature.
+    # (this keeps the installer small). ModelScope SDK, huggingface_hub and the
+    # llama-cpp Python bindings are only used by qwenpaw.local_models to download
+    # GGUF weights, and are imported lazily inside that package, so excluding
+    # them leaves startup and every remote-model path unaffected. The
+    # openai-whisper stack (torch/numba) is likewise dropped: only the opt-in
+    # "local_whisper" transcription path uses it (the default is "disabled"),
+    # while remote transcription ("whisper_api") keeps working. Drop an entry
+    # here to restore the corresponding feature.
     excludes=[
         "modelscope",
         "huggingface_hub",
@@ -291,6 +318,13 @@ a = Analysis(
         "whisper",
         "torch",
         "numba",
+        # Channel plugins now run in isolated subprocesses against the readable
+        # channel runtime, so their SDKs are staged there instead of being
+        # frozen into the desktop host.
+        "lark_oapi",
+        "dingtalk_stream",
+        "alibabacloud_dingtalk",
+        *_external_channel_modules,
     ],
     noarchive=False,
 )
