@@ -121,27 +121,36 @@ function buildBackendEnv() {
 
   const backendDir = path.dirname(backendExe());
   env.PATH = backendDir + path.delimiter + (env.PATH || "");
-  env.QWENPAW_TAURI_RESOURCE_DIR = RESOURCES;
 
+  // qwenpaw.plugins.channel_bootstrap requires five variables to be present
+  // *together* or absent *together*: the manifest pins the interpreter, the
+  // readable site and the dependency paths, and any partially populated launcher
+  // environment is rejected as CHANNEL_RUNTIME_MANIFEST_INVALID. When the
+  // readable channel runtime was staged (scripts/pack-electron/
+  // stage_channel_runtime.sh) we export all five so the frozen backend resolves
+  // channels through the manifest; when it is absent we export none of them,
+  // letting the backend fall back to its frozen default layout — the backend
+  // binary lives in <resources>/binaries/qwenpaw-backend, so it still finds
+  // <resources>/binaries/channel-runtime/runtime.json on its own.
+  // QWENPAW_DESKTOP_PY_RUNTIME is also consumed by the coding/make-skill flow
+  // outside channel bootstrap, so it is exported whenever the bundled
+  // interpreter exists, independently of the channel runtime.
   const pythonRuntime = bundledPython();
   if (fs.existsSync(pythonRuntime)) {
     env.QWENPAW_DESKTOP_PY_RUNTIME = pythonRuntime;
   } else {
     console.warn("[backend] bundled python runtime not found");
   }
-  // qwenpaw.plugins.channel_bootstrap requires QWENPAW_TAURI_RESOURCE_DIR (set
-  // above) and these three to be present *together*: the manifest pins the
-  // interpreter, the readable site and the dependency paths, and any partially
-  // populated launcher environment is rejected as
-  // CHANNEL_RUNTIME_MANIFEST_INVALID. Staged by
-  // scripts/pack-electron/stage_channel_runtime.sh.
   const channelRuntime = path.join(BINARIES, "channel-runtime");
   const channelManifest = path.join(channelRuntime, "runtime.json");
-  if (fs.existsSync(channelManifest) && fs.existsSync(pythonRuntime)) {
-    const supportRoot = path.join(channelRuntime, "site");
+  const channelReady =
+    fs.existsSync(channelManifest) && fs.existsSync(pythonRuntime);
+  if (channelReady) {
+    env.QWENPAW_TAURI_RESOURCE_DIR = RESOURCES;
     env.QWENPAW_CHANNEL_RUNTIME_MANIFEST = channelManifest;
-    env.QWENPAW_CHANNEL_SUPPORT_ROOT = supportRoot;
-    env.QWENPAW_CHANNEL_DEPENDENCY_PATHS = JSON.stringify([supportRoot]);
+    const channelSite = path.join(channelRuntime, "site");
+    env.QWENPAW_CHANNEL_SUPPORT_ROOT = channelSite;
+    env.QWENPAW_CHANNEL_DEPENDENCY_PATHS = JSON.stringify([channelSite]);
   } else {
     console.warn(
       "[backend] readable channel runtime not staged; channel plugins cannot resolve their dependencies",

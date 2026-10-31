@@ -57,11 +57,29 @@ def test_backend_extras_include_channels(script: Path) -> None:
 
 
 def test_main_exports_the_full_launcher_environment() -> None:
-    """The shell sets the resource dir, so it must set the rest as well."""
+    """The shell guards all five variables behind a single channel-ready check.
+
+    ``qwenpaw.plugins.channel_bootstrap`` rejects a partially populated launcher
+    environment with ``CHANNEL_RUNTIME_MANIFEST_INVALID``: ``QWENPAW_TAURI_RESOURCE_DIR``
+    must be exported *together with* the three ``QWENPAW_CHANNEL_*`` variables, never
+    unconditionally on its own. If the readable channel runtime was not staged the
+    shell must export none of them, letting the frozen backend fall back to its
+    default layout (it still finds the manifest via the backend binary's own path).
+    """
     contents = MAIN_JS.read_text(encoding="utf-8")
 
     for key in LAUNCHER_KEYS:
         assert f"env.{key}" in contents, f"missing launcher variable: {key}"
+
+    guard_index = contents.find("const channelReady =")
+    assert guard_index != -1, "expected a channelReady guard in main.js"
+    resource_assignment = contents.find("env.QWENPAW_TAURI_RESOURCE_DIR")
+    assert resource_assignment != -1
+    assert resource_assignment > guard_index, (
+        "QWENPAW_TAURI_RESOURCE_DIR must be set inside the channelReady block, "
+        "not unconditionally; otherwise a missing manifest yields a partially "
+        "populated launcher environment and CHANNEL_RUNTIME_MANIFEST_INVALID."
+    )
 
 
 def test_main_python_runtime_matches_the_staged_layout() -> None:
