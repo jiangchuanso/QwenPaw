@@ -75,6 +75,3 @@ def test_signing_skips_debug_symbols_and_keeps_native_signatures(
     else:
         assert f"--verify --verbose=2 {native}" in calls
         assert f"--verify --verbose=2 {framework}" in calls
-
-
-
