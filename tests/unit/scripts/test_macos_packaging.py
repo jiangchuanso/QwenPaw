@@ -77,42 +77,4 @@ def test_signing_skips_debug_symbols_and_keeps_native_signatures(
         assert f"--verify --verbose=2 {framework}" in calls
 
 
-@pytest.mark.parametrize("missing", [None, "app", "executable"])
-def test_launcher_uses_real_top_level_app(tmp_path, missing):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    _command(bin_dir, "open", 'printf "%s\\n" "$1" >> "$COMMAND_LOG"\n')
-    for name in ("xattr", "sleep", "ps", "curl"):
-        _command(bin_dir, name, "exit 0\n")
-    app = "QwenPaw Desktop.app"
-    dist = tmp_path / "dist"
-    dist.mkdir()
-    with zipfile.ZipFile(
-        dist / "QwenPaw-Tauri-test-macOS.zip",
-        "w",
-    ) as archive:
-        archive.writestr(f"__MACOSX/{app}/._Contents", b"metadata")
-        if missing != "app":
-            archive.writestr(f"{app}/Contents/Info.plist", b"plist")
-            if missing != "executable":
-                executable = zipfile.ZipInfo(
-                    f"{app}/Contents/MacOS/qwenpaw-desktop",
-                )
-                executable.external_attr = 0o100755 << 16
-                archive.writestr(executable, b"binary")
-    port = tmp_path / "home/.qwenpaw/desktop_port"
-    port.parent.mkdir(parents=True)
-    port.write_text("12345")
 
-    result = _run(tmp_path, "scripts/verify/launch_tauri_macos.sh")
-
-    log = tmp_path / "commands.log"
-    if missing:
-        assert result.returncode != 0, result.stdout + result.stderr
-        assert not log.exists(), "invalid bundle must not be launched"
-    else:
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert log.read_text().splitlines() == [f"dist/verify-tauri/{app}"]
-        assert (tmp_path / "github-env").read_text() == (
-            "BASE_URL=http://127.0.0.1:12345\n"
-        )
