@@ -24,7 +24,7 @@ def collect_runtime_metadata(requirements, copy_metadata):
             distribution = metadata.distribution(name)
         except metadata.PackageNotFoundError:
             print(
-                f"Skipping optional desktop dependency not installed: {name}"
+                f"Skipping optional desktop dependency not installed: {name}",
             )
             continue
         if not requirement.specifier.contains(
