@@ -8,13 +8,25 @@ from packaging.utils import canonicalize_name
 
 
 def collect_runtime_metadata(requirements, copy_metadata):
-    """Copy the validated metadata closure from the build environment."""
+    """Copy the validated metadata closure from the build environment.
+
+    Desktop builds install only a subset of the optional extras, so a
+    requirement reachable from ``qwenpaw[full]`` may have no distribution in
+    the build environment. Such a package is also absent from the frozen
+    bundle, so skip it instead of aborting the PyInstaller build.
+    """
     pending = [Requirement(value) for value in requirements]
     visited, copied, datas = set(), set(), []
     while pending:
         requirement = pending.pop()
         name = canonicalize_name(requirement.name)
-        distribution = metadata.distribution(name)
+        try:
+            distribution = metadata.distribution(name)
+        except metadata.PackageNotFoundError:
+            print(
+                f"Skipping optional desktop dependency not installed: {name}"
+            )
+            continue
         if not requirement.specifier.contains(
             distribution.version,
             prereleases=True,

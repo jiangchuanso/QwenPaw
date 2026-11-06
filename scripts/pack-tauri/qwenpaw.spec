@@ -180,7 +180,10 @@ datas.append(
 datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
 
 # The dependency gate needs complete host metadata, not only the packages
-# that query their own versions. Both desktop builds install qwenpaw[full].
+# that query their own versions. Walk the full extras closure so every
+# installed distribution is covered; this build deliberately omits some
+# optional extras (local inference / whisper), and the collector skips the
+# ones that are not installed in the build environment.
 datas += runpy.run_path(str(Path(SPECPATH) / "collect_runtime_metadata.py"))[
     "collect_runtime_metadata"
 ](
