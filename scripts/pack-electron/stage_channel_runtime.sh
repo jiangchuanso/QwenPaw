@@ -24,6 +24,12 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Address every build artefact relative to the repo root. On Git Bash `pwd`
+# yields /d/a/..., which the bundled native Windows Python cannot open; MSYS
+# converts bare path arguments but leaves "...whl[channels]" (an extras
+# suffix) untouched, so pip resolves it as D:\d\a\... and dies with
+# FileNotFoundError.
+cd "${REPO_ROOT}"
 RESOURCE_DIR="${1:?usage: $0 <resource-dir> [dist-dir]}"
 DIST="${2:-dist}"
 if [ ! -d "${RESOURCE_DIR}" ]; then
@@ -32,8 +38,8 @@ if [ ! -d "${RESOURCE_DIR}" ]; then
 fi
 
 BINARIES="${RESOURCE_DIR}/binaries"
-DESKTOP_WHEELS="${REPO_ROOT}/${DIST}/desktop-wheels"
-CHANNEL_WHEELS="${REPO_ROOT}/${DIST}/channel-wheels"
+DESKTOP_WHEELS="${DIST}/desktop-wheels"
+CHANNEL_WHEELS="${DIST}/channel-wheels"
 
 # The bootstrap interpreter only runs the staging script. Prefer the PyInstaller
 # virtualenv the backend build created (it already has `packaging`), then fall

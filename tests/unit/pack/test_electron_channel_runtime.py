@@ -82,6 +82,17 @@ def test_main_exports_the_full_launcher_environment() -> None:
     )
 
 
+def test_channel_runtime_uses_relative_wheel_paths() -> None:
+    """Native Windows pip cannot open Git Bash /d/... wheel paths."""
+    script = REPO_ROOT / "scripts/pack-electron/stage_channel_runtime.sh"
+    contents = script.read_text(encoding="utf-8")
+
+    assert 'cd "${REPO_ROOT}"' in contents
+    assert 'DESKTOP_WHEELS="${DIST}/desktop-wheels"' in contents
+    assert 'CHANNEL_WHEELS="${DIST}/channel-wheels"' in contents
+    assert '"${HOST_WHEEL}[channels]"' in contents
+
+
 def test_main_python_runtime_matches_the_staged_layout() -> None:
     """The manifest pins the interpreter, so both sides must agree."""
     contents = MAIN_JS.read_text(encoding="utf-8")
