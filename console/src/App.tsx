@@ -81,6 +81,7 @@ import "./styles/layout.css";
 import "./styles/form-override.css";
 import "./styles/workspace.css";
 import { PressFeedback } from "./components/interaction/PressFeedback";
+import { AuthStatusProvider } from "./contexts/AuthStatusContext";
 import "katex/dist/katex.min.css";
 
 const antdLocaleMap: Record<string, Locale> = {
@@ -578,7 +579,9 @@ function AppInner({
               <UpdateTakeoverGate>
                 <ApprovalProvider>
                   <FontSizeProvider value={effectiveFontSize}>
-                    {routedContent}
+                    <AuthStatusProvider value={backendInfo.authStatus}>
+                      {routedContent}
+                    </AuthStatusProvider>
                   </FontSizeProvider>
                 </ApprovalProvider>
               </UpdateTakeoverGate>
