@@ -12,6 +12,7 @@ import importlib.util
 import os
 import runpy
 import sys
+import tomllib
 from importlib.metadata import packages_distributions
 from pathlib import Path
 
@@ -103,6 +104,31 @@ datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
 datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
+# Keep the offline, opt-in MCP payload identical to wheel package data. Do not
+# copy the whole author tree (which may contain node_modules or build caches).
+_packaging = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())[
+    "tool"
+]["setuptools"]
+_optional_package = "qwenpaw.plugins.bundled.optional.mcp"
+_optional_source = REPO_ROOT / _packaging["package-dir"][_optional_package]
+for _pattern in _packaging["package-data"][_optional_package]:
+    for _path in sorted(_optional_source.glob(_pattern)):
+        if _path.is_file():
+            datas.append(
+                (
+                    str(_path),
+                    str(
+                        Path(*_optional_package.split("."))
+                        / _path.relative_to(_optional_source).parent
+                    ),
+                ),
+            )
+datas.append(
+    (
+        str(REPO_ROOT / "plugins/provider"),
+        "qwenpaw/plugins/bundled/provider",
+    )
+)
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 # Ship the SDK adapter as source data, without analysing its optional imports.
 datas += collect_tree(
@@ -113,12 +139,6 @@ datas.append(
     (
         str(SRC / "browser/control_link/injected/engine.js"),
         "qwenpaw/browser/control_link/injected",
-    ),
-)
-datas.append(
-    (
-        str(SRC / "local_models/runtime-release.json"),
-        "qwenpaw/local_models",
     ),
 )
 
