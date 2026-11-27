@@ -32,6 +32,8 @@ UI flavours:
                                Electron-bundled backend's SPA. No CDP: the app
                                is launched headless purely to start the backend,
                                and a standalone Chromium loads the SPA over HTTP.
+- ``--ui-mode tauri-linux``    Playwright + WebKit; verify_tauri_linux.py
+                               checks the packaged native window first.
 
 Designed to be invoked by ``.github/workflows/desktop-release.yml`` after the
 desktop server has been booted on ``--base-url``. The API layer uses only
@@ -714,7 +716,7 @@ class PlaywrightDriver(UIDriver):
                 pass
 
 
-UI_MODES = ("tauri-macos", "tauri-windows", "electron")
+UI_MODES = ("tauri-macos", "tauri-windows", "tauri-linux", "electron")
 
 
 def make_driver(
@@ -724,7 +726,7 @@ def make_driver(
     cdp_url: str = "",
 ) -> UIDriver:
     """Build a concrete ``UIDriver`` for the requested mode."""
-    if ui_mode == "tauri-macos":
+    if ui_mode in ("tauri-macos", "tauri-linux"):
         return PlaywrightDriver("webkit", screenshot_dir, headless)
     if ui_mode == "tauri-windows":
         return PlaywrightDriver(

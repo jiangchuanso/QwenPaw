@@ -70,6 +70,7 @@ import "./styles/form-override.css";
 import "./styles/workspace.css";
 import { PressFeedback } from "./components/interaction/PressFeedback";
 import { AuthStatusProvider } from "./contexts/AuthStatusContext";
+import { HostNavigation } from "./features/platform-web/HostNavigation";
 import "katex/dist/katex.min.css";
 
 export function getAppThemeToken(
@@ -458,6 +459,7 @@ function AppInner({
     </AuthGuard>
   ) : (
     <BrowserRouter basename={basename}>
+      <HostNavigation />
       <Routes>
         <Route
           path="/login"
