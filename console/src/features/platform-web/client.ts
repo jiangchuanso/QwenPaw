@@ -1,9 +1,8 @@
 import { create } from "zustand";
 import { hostRequest } from "./context";
+import { consoleHostOrigin } from "./hostBridge";
 
-export const isPlatformWebApp = !!document.querySelector(
-  'meta[name="qwenpaw-platform-origin"]',
-);
+export const isPlatformWebApp = consoleHostOrigin() !== undefined;
 export interface WebAccount {
   id: string;
   display_name: string;
@@ -18,7 +17,7 @@ export const useWebWorkspace = create<{
   account: WebAccount | null;
   target: WebTarget | null;
   targets: WebTarget[];
-  update: (() => void) | null;
+  update: (() => Promise<unknown>) | null;
 }>(() => ({ account: null, target: null, targets: [], update: null }));
 
 export const targetKey = (target: WebTarget) => `${target.kind}:${target.id}`;

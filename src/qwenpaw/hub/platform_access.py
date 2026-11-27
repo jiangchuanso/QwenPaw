@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import logging
 from dataclasses import replace
 from pathlib import Path
 
@@ -18,7 +19,15 @@ from ..remote_access.runtime import PlatformRuntimeConnection
 from ..remote_access.store import RelayNodeStore
 from ..utils.http import is_loopback_host
 from .auth import HubUser
-from .models import RuntimeState
+from .models import RuntimeRecord, RuntimeState
+
+logger = logging.getLogger(__name__)
+_WATCH_INTERVAL = 5
+_CLOSE_TIMEOUT = 10
+
+
+class _RuntimeUnavailable(ValueError):
+    """A binding no longer points to an accessible running Runtime."""
 
 
 class HubPlatformConnections:
@@ -39,14 +48,13 @@ class HubPlatformConnections:
         )
         self.connections: dict[str, PlatformRuntimeConnection] = {}
 
-    def get(self, user: HubUser) -> PlatformRuntimeConnection:
+    def get(self, user_id: str) -> PlatformRuntimeConnection:
         """Resolve by stable local user ID, including for administrators."""
-        if user.user_id not in self.connections:
-            directory = self.root / user.user_id
-            self.connections[user.user_id] = PlatformRuntimeConnection(
+        if user_id not in self.connections:
+            directory = self.root / user_id
+            self.connections[user_id] = PlatformRuntimeConnection(
                 directory,
-                lambda: self._base_url(user.user_id),
-                lambda: self._headers(user.user_id),
+                lambda: self._endpoint(user_id),
                 hub_managed=True,
                 store=RelayNodeStore(
                     directory / "platform-node.json",
@@ -54,7 +62,7 @@ class HubPlatformConnections:
                     unprotect=self._unprotect,
                 ),
             )
-        return self.connections[user.user_id]
+        return self.connections[user_id]
 
     def _protect(self, value: str) -> str:
         return "ENC:" + self._cipher.encrypt(value.encode("utf-8")).decode(
@@ -66,25 +74,29 @@ class HubPlatformConnections:
             raise ValueError("Invalid Hub Platform credential")
         return self._cipher.decrypt(value[4:].encode("ascii")).decode("utf-8")
 
-    def _runtime(self, user_id: str):
+    def _runtime(self, user_id: str) -> RuntimeRecord:
         user = self.auth.get_user(user_id)
         if user is None or user.disabled:
-            raise ValueError("Local Hub account is disabled")
+            raise _RuntimeUnavailable("Local Hub account is disabled")
         state = self.connections[user_id].store.load()
         if state is None or not state.runtime_id:
-            raise ValueError("No Runtime is associated with this account")
+            raise _RuntimeUnavailable(
+                "No Runtime is associated with this account",
+            )
         record = self.runtimes.get(state.runtime_id)
+        if record is None:
+            raise _RuntimeUnavailable("Personal Runtime no longer exists")
         if record.owner_user_id != user_id:
-            raise ValueError("Runtime ownership changed")
+            raise _RuntimeUnavailable("Runtime ownership changed")
         if record.state is not RuntimeState.RUNNING:
-            raise ValueError("Personal Runtime is not running")
+            raise _RuntimeUnavailable("Personal Runtime is not running")
         if not is_loopback_host(record.host):
-            raise ValueError("Runtime endpoint must be loopback-only")
+            raise _RuntimeUnavailable("Runtime endpoint must be loopback-only")
         return record
 
-    def _base_url(self, user_id: str) -> str:
+    def _endpoint(self, user_id: str) -> tuple[str, dict[str, str]]:
         record = self._runtime(user_id)
-        return str(
+        base_url = str(
             httpx.URL(
                 scheme="http",
                 host=record.host.strip("[]"),
@@ -92,8 +104,6 @@ class HubPlatformConnections:
             ),
         )
 
-    def _headers(self, user_id: str) -> dict[str, str]:
-        record = self._runtime(user_id)
         token = self.credentials.get_runtime_secret(
             tenant_id=record.tenant_id,
             runtime_id=record.runtime_id,
@@ -101,14 +111,14 @@ class HubPlatformConnections:
         )
         if not token:
             raise ValueError("Runtime credential is unavailable")
-        return {"X-QwenPaw-Runtime-Token": token}
+        return base_url, {"X-QwenPaw-Runtime-Token": token}
 
     async def prepare(self, user: HubUser, ensure_runtime) -> None:
         """Fix the binding to this user's personal Runtime before OAuth."""
         record = await ensure_runtime(user)
         if record.owner_user_id != user.user_id:
             raise HTTPException(status_code=403, detail="Runtime not owned")
-        connection = self.get(user)
+        connection = self.get(user.user_id)
         async with connection.store.mutation_lock:
             state = await asyncio.to_thread(connection.store.load)
             if state is None:
@@ -118,36 +128,73 @@ class HubPlatformConnections:
                 )
             if state.runtime_id and state.runtime_id != record.runtime_id:
                 raise HTTPException(status_code=409, detail="Disconnect first")
-            await asyncio.to_thread(
-                connection.store.save,
+            await connection.store.save_async(
                 replace(state, runtime_id=record.runtime_id),
             )
 
     async def watch(self) -> None:
         """Restore owned connections and stop disabled or moved accounts."""
-        for path in self.root.glob("*/platform-node.json"):
-            user = await asyncio.to_thread(
-                self.auth.get_user,
-                path.parent.name,
-            )
-            if user is not None and not user.disabled:
-                self.get(user)
+        checks: dict[str, asyncio.Task[None]] = {}
         try:
+            paths = await asyncio.to_thread(
+                lambda: list(self.root.glob("*/platform-node.json")),
+            )
+            for path in paths:
+                self.get(path.parent.name)
             while True:
                 for user_id, connection in tuple(self.connections.items()):
-                    try:
-                        await asyncio.to_thread(self._runtime, user_id)
-                    except (ValueError, KeyError):
-                        await connection.close()
-                    else:
-                        if connection.supervisor.status != (
-                            "authorization_required"
-                        ):
-                            await connection.start()
-                await asyncio.sleep(5)
+                    check = checks.get(user_id)
+                    if check is None or check.done():
+                        checks[user_id] = asyncio.create_task(
+                            self._check_connection(user_id, connection),
+                        )
+                await asyncio.sleep(_WATCH_INTERVAL)
         finally:
-            for connection in self.connections.values():
+            for check in checks.values():
+                check.cancel()
+            await asyncio.gather(*checks.values(), return_exceptions=True)
+            await asyncio.gather(
+                *(
+                    self._close(user_id, connection)
+                    for user_id, connection in tuple(self.connections.items())
+                ),
+            )
+
+    async def _check_connection(
+        self,
+        user_id: str,
+        connection: PlatformRuntimeConnection,
+    ) -> None:
+        try:
+            await asyncio.to_thread(self._runtime, user_id)
+            if connection.supervisor.status != "authorization_required":
+                await connection.start()
+        except _RuntimeUnavailable:
+            pass
+        except Exception as exc:
+            logger.warning(
+                "Cannot restore Platform connection for %s: %s",
+                user_id,
+                type(exc).__name__,
+            )
+        else:
+            return
+        await self._close(user_id, connection)
+
+    async def _close(
+        self,
+        user_id: str,
+        connection: PlatformRuntimeConnection,
+    ) -> None:
+        try:
+            async with asyncio.timeout(_CLOSE_TIMEOUT):
                 await connection.close()
+        except Exception as exc:
+            logger.warning(
+                "Cannot close Platform connection for %s: %s",
+                user_id,
+                type(exc).__name__,
+            )
 
 
 def mount_platform_routes(
@@ -162,7 +209,7 @@ def mount_platform_routes(
         request: Request,
         user: HubUser = Depends(require_user),
     ) -> None:
-        request.state.platform_connection = connections.get(user)
+        request.state.platform_connection = connections.get(user.user_id)
 
         async def prepare() -> None:
             await connections.prepare(user, ensure_runtime)
@@ -173,10 +220,10 @@ def mount_platform_routes(
         for user_id, connection in tuple(connections.connections.items()):
             if not connection.account.accepts_callback(nonce):
                 continue
-            user = await asyncio.to_thread(connections.auth.get_user, user_id)
-            if user is None or user.disabled:
+            try:
+                await asyncio.to_thread(connections._runtime, user_id)
+            except _RuntimeUnavailable:
                 break
-            await asyncio.to_thread(connections._runtime, user_id)
             request.state.platform_connection = connection
             return
         raise HTTPException(

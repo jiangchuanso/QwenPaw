@@ -19,7 +19,7 @@ from .platform_client import (
     PlatformSession,
     RelayPlatformError,
 )
-from .store import RelayNodeState, RelayNodeStore
+from .store import RelayNodeState, RelayNodeStateError, RelayNodeStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +65,10 @@ class RelayEnrollmentService:
 
     async def status(self) -> RelayEnrollmentStatus:
         """Return current identity without exposing any credentials."""
-        state = await asyncio.to_thread(self.store.load)
+        try:
+            state = await asyncio.to_thread(self.store.load)
+        except RelayNodeStateError:
+            return RelayEnrollmentStatus(status="recovery_required")
         pending = self._pending
         if pending and pending.expires_at <= time.monotonic():
             self._pending = None
@@ -108,7 +111,7 @@ class RelayEnrollmentService:
                     qwenpaw_id=str(uuid.uuid4()),
                     name=name,
                 )
-                await asyncio.to_thread(self.store.save, state)
+                await self.store.save_async(state)
             nonce = secrets.token_urlsafe(24)
             oauth_state = secrets.token_urlsafe(32)
             verifier = secrets.token_urlsafe(64)
@@ -203,7 +206,7 @@ class RelayEnrollmentService:
                 account_name=session.display_name,
                 session=session,
             )
-            await asyncio.to_thread(self.store.save, current)
+            await self.store.save_async(current)
             if current.registered_node is None:
                 await self._enroll(current, session.access_token)
         return await self.status()
@@ -222,10 +225,7 @@ class RelayEnrollmentService:
             enrollment=enrollment,
             key_pair=state.key_pair,
         )
-        await asyncio.to_thread(
-            self.store.save,
-            replace(state, registered_node=registered),
-        )
+        await self.store.save_async(replace(state, registered_node=registered))
 
     async def bind(self) -> RelayEnrollmentStatus:
         """Retry enrollment after login without another OAuth exchange."""
@@ -257,15 +257,14 @@ class RelayEnrollmentService:
                     )
                 except RelayPlatformError as exc:
                     if exc.status_code in {401, 403}:
-                        await asyncio.to_thread(
-                            self.store.save,
+                        await self.store.save_async(
                             replace(state, session=None),
                         )
                     raise
                 if session.user_id != state.account_id:
                     raise ValueError("Platform returned a different account")
                 state = replace(state, session=session)
-                await asyncio.to_thread(self.store.save, state)
+                await self.store.save_async(state)
             return session
 
     async def account_request(self, method: str, path: str, body=None):
@@ -287,8 +286,7 @@ class RelayEnrollmentService:
                 async with self._lock:
                     current = await asyncio.to_thread(self.store.load)
                     if current and current.session == session:
-                        await asyncio.to_thread(
-                            self.store.save,
+                        await self.store.save_async(
                             replace(current, session=None),
                         )
             raise
@@ -331,10 +329,7 @@ class RelayEnrollmentService:
                 try:
                     await _logout_session(client, state.session)
                 finally:
-                    await asyncio.to_thread(
-                        self.store.save,
-                        replace(state, session=None),
-                    )
+                    await self.store.save_async(replace(state, session=None))
 
 
 async def _logout_session(
